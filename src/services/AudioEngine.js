@@ -1,127 +1,256 @@
 import WaveSurfer from 'wavesurfer.js';
+import * as Tone from 'tone';
 
 class AudioEngine {
     constructor() {
         this.wavesurfer = null;
+        this.player = null;
+        this.pitchShiftNode = null;
         this.onTimeUpdate = null;
         this.onReady = null;
         this.onFinish = null;
+        this.isInitialized = false;
+        this.targetPitch = 0;
+
+        this.isPlayingState = false;
+        this.animationFrame = null;
+
+        // Sync anchors
+        this.startTime = 0; // Tone.now() when started
+        this.startOffset = 0; // Offset in the buffer when started
     }
 
-    /**
-     * Initialize WaveSurfer instance
-     * @param {HTMLElement} container 
-     * @param {Object} options 
-     */
-    init(container, options = {}) {
+    async init(container, options = {}) {
         if (this.wavesurfer) {
-            this.wavesurfer.destroy();
+            this.destroy();
+        }
+
+        const internalContainer = container || document.createElement('div');
+        if (!container) {
+            internalContainer.id = 'headless-audio-engine';
+            internalContainer.style.position = 'absolute';
+            internalContainer.style.width = '1px';
+            internalContainer.style.height = '1px';
+            internalContainer.style.overflow = 'hidden';
+            internalContainer.style.top = '-9999px';
+            internalContainer.style.left = '-9999px';
+            internalContainer.style.pointerEvents = 'none';
+            document.body.appendChild(internalContainer);
         }
 
         this.wavesurfer = WaveSurfer.create({
-            container: container,
-            waveColor: 'rgba(124, 58, 237, 0.5)', // violet-600 with opacity
-            progressColor: 'rgb(124, 58, 237)', // violet-600
-            cursorColor: 'rgb(255, 255, 255)',
-            barWidth: 2,
-            barGap: 1,
-            barRadius: 2,
-            height: 100,
-            backend: 'MediaElement', // Better for large files/streaming
+            container: internalContainer,
+            interact: true,
             ...options
         });
 
+        this.internalContainer = !container ? internalContainer : null;
         this._setupListeners();
+    }
+
+    async _ensureDSP() {
+        if (this.isInitialized) return;
+
+        try {
+            await Tone.start();
+            if (!this.player) {
+                this.player = new Tone.Player().toDestination();
+
+                this.pitchShiftNode = new Tone.PitchShift({
+                    pitch: this.targetPitch,
+                    windowSize: 0.1,
+                    delayTime: 0,
+                    feedback: 0
+                });
+
+                this.player.disconnect();
+                this.player.connect(this.pitchShiftNode);
+                this.pitchShiftNode.toDestination();
+
+                this.isInitialized = true;
+            }
+        } catch (e) {
+            console.error("AudioEngine: DSP Error", e);
+        }
     }
 
     _setupListeners() {
         if (!this.wavesurfer) return;
 
-        this.wavesurfer.on('timeupdate', (currentTime) => {
-            if (this.onTimeUpdate) this.onTimeUpdate(currentTime);
-        });
+        this.wavesurfer.on('interaction', (newProgress) => {
+            if (this.player && this.player.buffer.loaded) {
+                const duration = this.player.buffer.duration;
+                const seekTime = newProgress * duration;
 
-        this.wavesurfer.on('ready', () => {
-            if (this.onReady) this.onReady(this.wavesurfer.getDuration());
-        });
-
-        this.wavesurfer.on('finish', () => {
-            if (this.onFinish) this.onFinish();
+                if (this.isPlayingState) {
+                    this.player.stop();
+                    this.startTime = Tone.now();
+                    this.startOffset = seekTime;
+                    this.player.start(0, seekTime);
+                } else {
+                    this.startOffset = seekTime;
+                }
+            }
         });
     }
 
-    load(url) {
+    async load(url) {
         if (!this.wavesurfer) return;
-        this.wavesurfer.load(url);
+
+        const buffer = new Tone.ToneAudioBuffer(url, async () => {
+            await this._ensureDSP();
+            this.player.buffer = buffer;
+            this.startOffset = 0;
+            this.wavesurfer.load(url);
+            if (this.onReady) this.onReady(buffer.duration);
+        }, (err) => {
+            alert("Error cargando audio: " + err.message);
+        });
     }
 
-    playPause() {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.playPause();
+    async playPause() {
+        if (!this.player || !this.player.buffer.loaded) return;
+
+        await Tone.start();
+        if (Tone.context.state !== 'running') await Tone.context.resume();
+
+        if (this.isPlayingState) {
+            this.pause();
+        } else {
+            this.play();
+        }
     }
 
     play() {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.play();
+        if (!this.player || this.isPlayingState) return;
+
+        // Start from current visual position or saved offset
+        const seekTime = (this.wavesurfer) ? this.wavesurfer.getCurrentTime() : this.startOffset;
+
+        this.startTime = Tone.now();
+        this.startOffset = seekTime;
+
+        this.player.start(0, seekTime);
+        this.isPlayingState = true;
+
+        this._startSyncLoop();
     }
 
     pause() {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.pause();
+        if (!this.player || !this.isPlayingState) return;
+
+        // Save where we stopped
+        this.startOffset = this.getCurrentTime();
+        this.player.stop();
+        this.isPlayingState = false;
+
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+        }
     }
 
-    seekTo(progress) {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.seekTo(progress); // 0 to 1
+    _startSyncLoop() {
+        const sync = () => {
+            if (!this.isPlayingState || !this.player) return;
+
+            const currentTime = this.getCurrentTime();
+            const duration = this.getDuration();
+
+            // Notify UI
+            if (this.onTimeUpdate) this.onTimeUpdate(currentTime);
+
+            // Update WaveSurfer visual
+            if (this.wavesurfer && duration > 0) {
+                this.wavesurfer.setTime(currentTime);
+            }
+
+            // Check for auto-finish
+            if (currentTime >= duration) {
+                this.pause();
+                if (this.onFinish) this.onFinish();
+                return;
+            }
+
+            this.animationFrame = requestAnimationFrame(sync);
+        };
+        this.animationFrame = requestAnimationFrame(sync);
     }
 
-    setTime(seconds) {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.setTime(seconds);
-    }
+    // Accurate time tracking for Buffer
+    getCurrentTime() {
+        if (!this.player || !this.player.buffer.loaded) return 0;
+        if (!this.isPlayingState) return this.startOffset;
 
-    /**
-     * Set playback speed (tempo)
-     * @param {number} rate - 0.5 to 2.0 usually
-     * @param {boolean} preservePitch - Whether to preserve pitch
-     */
-    setSpeed(rate, preservePitch = true) {
-        if (!this.wavesurfer) return;
-        this.wavesurfer.setPlaybackRate(rate, preservePitch);
-    }
+        // Current time = Offset when started + time elapsed since then
+        // We multiply by playbackRate if we want to be super precise, but Tone.now() is absolute.
+        // If speed is 2.0, we cover 2 seconds of buffer per 1 absolute second.
+        const elapsed = Tone.now() - this.startTime;
+        const speed = this.player.playbackRate;
+        const calculated = this.startOffset + (elapsed * speed);
 
-    /**
-     * Set Pitch (Simulated via playbackRate if preservePitch is false, or needing DSP)
-     * Since WaveSurfer/HTML5 doesn't support pitch shifting without speed change natively easily,
-     * we will implement a basic detune if WebAudio backend, or just use speed trick for now.
-     * Note: Real pitch shifting requires complex DSP (SoundTouch/Rubberband).
-     */
-    setPitch(semitones) {
-        // Placeholder: Implementing pitch shift usually requires specific DSP libraries.
-        // For now, we logging this limitation or we can use the playbackRate trick if the user accepts speed change.
-        console.warn("Pitch shifting without speed change requires additional DSP libraries (e.g. SoundTouch).");
-
-        // If we want to simulate "Chipmunk" effect (Speed + Pitch up):
-        // this.wavesurfer.setPlaybackRate(1.0 + (semitones * 0.05), false); 
+        return Math.min(calculated, this.getDuration());
     }
 
     getDuration() {
-        return this.wavesurfer ? this.wavesurfer.getDuration() : 0;
-    }
-
-    getCurrentTime() {
-        return this.wavesurfer ? this.wavesurfer.getCurrentTime() : 0;
+        return this.player?.buffer.duration || 0;
     }
 
     isPlaying() {
-        return this.wavesurfer ? this.wavesurfer.isPlaying() : false;
+        return this.isPlayingState;
+    }
+
+    setSpeed(rate) {
+        // If playing, we need to re-anchor the sync to avoid a jump
+        const wasPlaying = this.isPlayingState;
+        if (wasPlaying) {
+            const nowTime = this.getCurrentTime();
+            this.startOffset = nowTime;
+            this.startTime = Tone.now();
+        }
+
+        if (this.player) {
+            this.player.playbackRate = rate;
+        }
+    }
+
+    setPitch(semitones) {
+        this.targetPitch = semitones;
+        if (this.pitchShiftNode) {
+            this.pitchShiftNode.pitch = semitones;
+        }
     }
 
     destroy() {
+        this.pause();
         if (this.wavesurfer) {
             this.wavesurfer.destroy();
             this.wavesurfer = null;
         }
+        if (this.player) {
+            this.player.dispose();
+            this.player = null;
+        }
+        if (this.pitchShiftNode) {
+            this.pitchShiftNode.dispose();
+            this.pitchShiftNode = null;
+        }
+        this.isInitialized = false;
+    }
+
+    seekTo(p) {
+        const duration = this.getDuration();
+        const seekTime = p * duration;
+
+        if (this.isPlayingState) {
+            this.player.stop();
+            this.startOffset = seekTime;
+            this.startTime = Tone.now();
+            this.player.start(0, seekTime);
+        } else {
+            this.startOffset = seekTime;
+        }
+        this.wavesurfer?.setTime(seekTime);
     }
 }
 

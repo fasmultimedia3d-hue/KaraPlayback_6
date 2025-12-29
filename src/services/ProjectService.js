@@ -90,16 +90,36 @@ export const ProjectService = {
      * @param {Object} settings 
      * @returns {Blob}
      */
-    exportProjectToJSON: (title, lyrics, settings) => {
+    exportProjectToJSON: (title, lyrics, settings, pdfPageTimestamps) => {
         const project = {
             id: crypto.randomUUID(),
             title: title || "Untitled Project",
             timestamp: new Date().toISOString(),
             lyrics: lyrics,
             audioSettings: settings,
+            pdfPageTimestamps: pdfPageTimestamps,
             version: 1
         };
 
         return new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    },
+
+    /**
+     * Generate LRC content string from lyrics array
+     * @param {Array} lyrics 
+     * @returns {string}
+     */
+    generateLRC: (lyrics) => {
+        if (!lyrics || !Array.isArray(lyrics)) return '';
+
+        return lyrics.map(line => {
+            const time = line.time || 0;
+            const mins = Math.floor(time / 60);
+            const secs = Math.floor(time % 60);
+            const ms = Math.floor((time % 1) * 100);
+
+            const timeTag = `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}]`;
+            return `${timeTag}${line.text}`;
+        }).join('\n');
     }
 };

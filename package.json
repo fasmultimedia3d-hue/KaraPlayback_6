@@ -1,5 +1,5 @@
 {
-  "name": "karaoke-flow-pro",
+  "name": "kara-playback",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -17,6 +17,7 @@
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "lucide-react": "^0.474.0",
+    "pdfjs-dist": "^5.4.449",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tone": "^15.1.22",

@@ -1,5 +1,5 @@
 {
-  "appId": "com.example.karaokeapp",
-  "appName": "KaraokeApp",
+  "appId": "com.karaplayback.app",
+  "appName": "KaraPlayback",
   "webDir": "dist"
 }

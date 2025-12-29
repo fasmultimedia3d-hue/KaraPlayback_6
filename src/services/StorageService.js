@@ -55,9 +55,20 @@ export const StorageService = {
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readonly');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.getAll();
+            const request = store.openCursor();
+            const results = [];
 
-            request.onsuccess = () => resolve(request.result || []);
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    // Strip blob immediately!
+                    const { audioBlob, ...rest } = cursor.value;
+                    results.push(rest);
+                    cursor.continue();
+                } else {
+                    resolve(results);
+                }
+            };
             request.onerror = (e) => reject("Error loading projects: " + e.target.error);
         });
     },

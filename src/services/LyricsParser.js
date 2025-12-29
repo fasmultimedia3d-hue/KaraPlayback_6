@@ -1,4 +1,33 @@
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+
 export const LyricsParser = {
+    /**
+     * Parse PDF content into an array of lines
+     * @param {ArrayBuffer} data 
+     * @returns {Promise<Array<{text: string}>>}
+     */
+    parsePDF: async (data) => {
+        try {
+            const pdf = await pdfjsLib.getDocument({ data }).promise;
+            let fullText = "";
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                const strings = content.items.map(item => item.str);
+                fullText += strings.join(" ") + "\n";
+            }
+
+            return LyricsParser.parseTXT(fullText);
+        } catch (e) {
+            console.error("PDF Parse Error:", e);
+            throw new Error("Failed to extract text from PDF: " + e.message);
+        }
+    },
+
     /**
      * Parse LRC content into an array of objects { time, text }
      * @param {string} content 

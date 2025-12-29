@@ -7,3 +7,23 @@
     @apply bg-slate-950 text-slate-100 antialiased;
   }
 }
+
+@layer utilities {
+
+  /* Safe Area Utilities for Mobile (Notch/Status Bar) */
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 1rem);
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mt-safe {
+    margin-top: env(safe-area-inset-top);
+  }
+
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+}
