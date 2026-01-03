@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 @layer base {
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-slate-950 text-slate-100 antialiased;
   }
@@ -12,7 +20,7 @@
 
   /* Safe Area Utilities for Mobile (Notch/Status Bar) */
   .pt-safe {
-    padding-top: max(env(safe-area-inset-top), 1rem);
+    padding-top: env(safe-area-inset-top);
   }
 
   .pb-safe {

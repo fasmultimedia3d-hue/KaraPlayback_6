@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KaraPlayback</string>
+    <string name="title_activity_main">KaraPlayback</string>
+    <string name="package_name">com.karaplayback.app</string>
+    <string name="custom_url_scheme">com.karaplayback.app</string>
+</resources>

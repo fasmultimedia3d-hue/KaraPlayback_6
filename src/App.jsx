@@ -101,8 +101,8 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="app-container h-screen w-screen bg-slate-950 overflow-hidden relative">
-        <div className={`absolute inset-0 transition-opacity duration-300 ${view === 'library' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
+      <div className="app-container h-screen w-full bg-slate-950 overflow-hidden relative">
+        <div className={`absolute inset-0 overflow-hidden transition-opacity duration-300 ${view === 'library' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
           <Library
             onSelectProject={handleSelectProject}
             onOpenSettings={() => setView('settings')}

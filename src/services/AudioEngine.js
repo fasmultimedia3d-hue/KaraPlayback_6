@@ -54,18 +54,13 @@ class AudioEngine {
         try {
             await Tone.start();
             if (!this.player) {
-                this.player = new Tone.Player().toDestination();
-
-                this.pitchShiftNode = new Tone.PitchShift({
-                    pitch: this.targetPitch,
-                    windowSize: 0.1,
-                    delayTime: 0,
-                    feedback: 0
-                });
-
-                this.player.disconnect();
-                this.player.connect(this.pitchShiftNode);
-                this.pitchShiftNode.toDestination();
+                // Use GrainPlayer for Time Stretching (Pitch independent of Speed)
+                this.player = new Tone.GrainPlayer({
+                    grainSize: 0.2,
+                    overlap: 0.1,
+                    playbackRate: 1,
+                    detune: this.targetPitch * 100
+                }).toDestination();
 
                 this.isInitialized = true;
             }
@@ -95,6 +90,15 @@ class AudioEngine {
     }
 
     async load(url) {
+        if (this.player) {
+            this.player.stop();
+        }
+        this.isPlayingState = false;
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+        }
+
         if (!this.wavesurfer) return;
 
         const buffer = new Tone.ToneAudioBuffer(url, async () => {
@@ -109,7 +113,7 @@ class AudioEngine {
     }
 
     async playPause() {
-        if (!this.player || !this.player.buffer.loaded) return;
+        if (!this.player || !this.player.buffer.loaded) return this.isPlayingState;
 
         await Tone.start();
         if (Tone.context.state !== 'running') await Tone.context.resume();
@@ -119,6 +123,7 @@ class AudioEngine {
         } else {
             this.play();
         }
+        return this.isPlayingState;
     }
 
     play() {
@@ -183,8 +188,9 @@ class AudioEngine {
         if (!this.isPlayingState) return this.startOffset;
 
         // Current time = Offset when started + time elapsed since then
-        // We multiply by playbackRate if we want to be super precise, but Tone.now() is absolute.
-        // If speed is 2.0, we cover 2 seconds of buffer per 1 absolute second.
+        // With GrainPlayer, time flows normally even with rate change for the Listener,
+        // BUT we need to track position in Buffer.
+        // GrainPlayer handles this, but for sync we calculate manually:
         const elapsed = Tone.now() - this.startTime;
         const speed = this.player.playbackRate;
         const calculated = this.startOffset + (elapsed * speed);
@@ -216,8 +222,8 @@ class AudioEngine {
 
     setPitch(semitones) {
         this.targetPitch = semitones;
-        if (this.pitchShiftNode) {
-            this.pitchShiftNode.pitch = semitones;
+        if (this.player) {
+            this.player.detune = semitones * 100;
         }
     }
 
@@ -230,10 +236,6 @@ class AudioEngine {
         if (this.player) {
             this.player.dispose();
             this.player = null;
-        }
-        if (this.pitchShiftNode) {
-            this.pitchShiftNode.dispose();
-            this.pitchShiftNode = null;
         }
         this.isInitialized = false;
     }

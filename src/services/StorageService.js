@@ -143,5 +143,18 @@ export const StorageService = {
 
         item.parentId = newParentId;
         await StorageService.saveProject(item);
+    },
+
+    /**
+     * Rename a project or folder
+     * @param {string} id 
+     * @param {string} newName 
+     */
+    renameProject: async (id, newName) => {
+        const item = await StorageService.getProject(id);
+        if (!item) throw new Error("Item not found");
+
+        item.title = newName;
+        await StorageService.saveProject(item);
     }
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Trash2, Plus } from 'lucide-react';
 
-const LyricsDisplay = ({ lyrics, currentTime, isSynced, isEditing, result, autoScroll, onLineClick, onInsertLine, onTextChange }) => {
+const LyricsDisplay = ({ lyrics, currentTime, isSynced, isEditing, result, autoScroll, onLineClick, onInsertLine, onTextChange, onDeleteLine }) => {
     // ... (rest of code)
 
 
@@ -62,8 +63,8 @@ const LyricsDisplay = ({ lyrics, currentTime, isSynced, isEditing, result, autoS
                         ref={isActive ? activeLineRef : null}
                         className={`transition-all duration-300 ease-in-out my-4 p-2 rounded-lg flex items-center justify-center gap-4 group
                             ${isActive
-                                ? 'text-violet-400 text-2xl font-bold bg-slate-800/50 scale-105'
-                                : 'text-slate-400 text-lg hover:text-slate-200'}
+                                ? `text-slate-100 font-bold bg-slate-800/50 scale-105 ${isEditing ? 'text-2xl md:text-3xl' : 'text-4xl md:text-5xl'}`
+                                : `text-slate-500 hover:text-slate-300 ${isEditing ? 'text-xl md:text-2xl' : 'text-3xl md:text-4xl'}`}
                         `}
                     >
                         {isEditing ? (
@@ -91,7 +92,7 @@ const LyricsDisplay = ({ lyrics, currentTime, isSynced, isEditing, result, autoS
                                     className="p-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white rounded-full transition opacity-50 group-hover:opacity-100"
                                     title="Set current time"
                                 >
-                                    <div className="text-[10px] font-mono font-bold">
+                                    <div className="text-xs font-mono font-bold">
                                         {line.time ? line.time.toFixed(1) + 's' : 'SYNC'}
                                     </div>
                                 </button>
@@ -104,9 +105,20 @@ const LyricsDisplay = ({ lyrics, currentTime, isSynced, isEditing, result, autoS
                                     className="p-2 bg-blue-500/10 text-blue-500 hover:bg-blue-500 hover:text-white rounded-full transition opacity-50 group-hover:opacity-100"
                                     title="Insert line below"
                                 >
-                                    <div className="text-[10px] font-bold h-4 w-4 flex items-center justify-center">
-                                        +
+                                    <div className="flex items-center justify-center">
+                                        <Plus size={20} />
                                     </div>
+                                </button>
+
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDeleteLine && onDeleteLine(idx);
+                                    }}
+                                    className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition opacity-50 group-hover:opacity-100"
+                                    title="Delete line"
+                                >
+                                    <Trash2 size={16} />
                                 </button>
                             </div>
                         )}

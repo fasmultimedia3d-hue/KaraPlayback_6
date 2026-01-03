@@ -6,6 +6,21 @@ import PDFViewer from './PDFViewer';
 import { LyricsParser } from '../services/LyricsParser';
 import { ProjectService } from '../services/ProjectService';
 import { StorageService } from '../services/StorageService';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
+
+// Helper to convert Blob to Base64
+const blobToBase64 = (blob) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => {
+            resolve(reader.result.split(',')[1]);
+        };
+        reader.readAsDataURL(blob);
+    });
+};
 
 const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) => {
 
@@ -43,8 +58,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         };
     }, [pdfUrl]);
 
-    // Sync state when project changes (for background playback navigation)
-    // Visibility Ref for Event Listeners
     // Sync state when project changes (for background playback navigation)
     // Visibility Ref for Event Listeners
     const shouldUpdateVisualsRef = useRef(isVisible);
@@ -140,9 +153,9 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     const [autoScroll, setAutoScroll] = useState(true);
 
     // --- Handlers (Stable) ---
-    const togglePlay = useCallback(() => {
-        audioEngine.playPause();
-        setIsPlaying(prev => !prev);
+    const togglePlay = useCallback(async () => {
+        const newState = await audioEngine.playPause();
+        setIsPlaying(newState);
     }, []);
 
     const handleFileUpload = useCallback(async (event) => {
@@ -202,6 +215,14 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             } else {
                 newLyrics[index] = { ...newLyrics[index], time };
             }
+
+            // Sort by time, keeping unsynced items (null/undefined) at the end
+            newLyrics.sort((a, b) => {
+                const tA = (a.time !== null && a.time !== undefined) ? a.time : Infinity;
+                const tB = (b.time !== null && b.time !== undefined) ? b.time : Infinity;
+                return tA - tB;
+            });
+
             return newLyrics;
         });
         setIsSynced(true);
@@ -214,6 +235,11 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             [pdfCurrentPage]: audioEngine.getCurrentTime()
         }));
     }, [isEditing, viewMode, pdfCurrentPage]);
+
+    const handleDeleteLine = useCallback((index) => {
+        if (!window.confirm("Are you sure you want to delete this line?")) return;
+        setLyrics(prev => prev.filter((_, i) => i !== index));
+    }, []);
 
     const handleImportPackage = useCallback(async (event) => {
         const file = event.target.files[0];
@@ -269,8 +295,8 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
     // --- Memoized Components ---
     const Header = useMemo(() => (
-        <div className="pt-safe flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top">
-            <div className={`flex items-center gap-4 landscape:gap-2 px-1.5 py-1 landscape:p-1 ${isEditing ? 'landscape:py-0' : ''}`}>
+        <div className="portrait:pt-safe landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top">
+            <div className={`flex items-center gap-4 landscape:gap-2 px-1.5 pt-0 pb-0.5 landscape:px-1 landscape:py-0 ${isEditing ? 'landscape:py-0' : ''}`}>
                 <button onClick={onBack} className="p-2 landscape:p-1 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
                     <ArrowLeft size={20} className="landscape:w-4 landscape:h-4" />
                 </button>
@@ -278,7 +304,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     {title}
                 </h1>
             </div>
-            <div className={`flex gap-1 landscape:gap-2 items-center px-1.5 py-1 pr-8 landscape:p-1 landscape:pr-20 ${isEditing ? 'landscape:py-0' : ''}`}>
+            <div className={`flex gap-2 items-center px-1.5 pt-0 pb-0.5 pr-8 landscape:px-1 landscape:py-0 landscape:pr-20 ${isEditing ? 'landscape:py-0' : ''}`}>
                 {isEditing && (
                     <>
                         <button onClick={() => setShowSaveModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Save to Library">
@@ -575,16 +601,50 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
                                     try {
                                         const blob = await ProjectService.packProject(metadata, audioBlob);
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.karaoke`;
-                                        a.click();
-                                        URL.revokeObjectURL(url);
+                                        const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.karaoke`;
+
+                                        if (Capacitor.isNativePlatform()) {
+                                            try {
+                                                const base64 = await blobToBase64(blob);
+                                                const result = await Filesystem.writeFile({
+                                                    path: filename,
+                                                    data: base64,
+                                                    directory: Directory.Cache
+                                                });
+                                                await Share.share({
+                                                    title: 'Export KaraPlayback Project',
+                                                    url: result.uri,
+                                                });
+                                            } catch (err) {
+                                                console.error("Native share failed", err);
+                                                alert("Share failed: " + err.message);
+                                            }
+                                        } else if (window.showSaveFilePicker) {
+                                            const handle = await window.showSaveFilePicker({
+                                                suggestedName: filename,
+                                                types: [{
+                                                    description: 'KaraPlayback Package',
+                                                    accept: { 'application/octet-stream': ['.karaoke'] },
+                                                }],
+                                            });
+                                            const writable = await handle.createWritable();
+                                            await writable.write(blob);
+                                            await writable.close();
+                                        } else {
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = filename;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                            alert("Tu navegador no soporta elegir la carpeta de destino. El archivo se ha guardado en tu carpeta de Descargas.");
+                                        }
                                         setShowExportModal(false);
                                     } catch (e) {
-                                        console.error(e);
-                                        alert("Export failed: " + e.message);
+                                        if (e.name !== 'AbortError') {
+                                            console.error(e);
+                                            alert("Export failed: " + e.message);
+                                        }
                                     }
                                 }}
                                 className="w-full p-4 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-4 transition group border border-slate-700 hover:border-violet-500/50"
@@ -599,18 +659,57 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                             </button>
 
                             <button
-                                onClick={() => {
+                                onClick={async () => {
                                     if (!lyrics.length) return alert("No lyrics to export");
 
                                     const lrcContent = ProjectService.generateLRC(lyrics);
                                     const blob = new Blob([lrcContent], { type: 'text/plain;charset=utf-8' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.lrc`;
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                    setShowExportModal(false);
+                                    const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.lrc`;
+
+                                    try {
+                                        if (Capacitor.isNativePlatform()) {
+                                            try {
+                                                const base64 = await blobToBase64(blob);
+                                                const result = await Filesystem.writeFile({
+                                                    path: filename,
+                                                    data: base64,
+                                                    directory: Directory.Cache
+                                                });
+                                                await Share.share({
+                                                    title: 'Export Lyrics',
+                                                    url: result.uri,
+                                                });
+                                            } catch (err) {
+                                                console.error("Native share failed", err);
+                                                alert("Share failed: " + err.message);
+                                            }
+                                        } else if (window.showSaveFilePicker) {
+                                            const handle = await window.showSaveFilePicker({
+                                                suggestedName: filename,
+                                                types: [{
+                                                    description: 'Cifra Club / LRC Lyrics',
+                                                    accept: { 'text/plain': ['.lrc'] },
+                                                }],
+                                            });
+                                            const writable = await handle.createWritable();
+                                            await writable.write(blob);
+                                            await writable.close();
+                                        } else {
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = filename;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                            alert("Tu navegador no soporta elegir la carpeta de destino. El archivo se ha guardado en tu carpeta de Descargas.");
+                                        }
+                                        setShowExportModal(false);
+                                    } catch (e) {
+                                        if (e.name !== 'AbortError') {
+                                            console.error(e);
+                                            alert("Export failed: " + e.message);
+                                        }
+                                    }
                                 }}
                                 className="w-full p-4 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-4 transition group border border-slate-700 hover:border-fuchsia-500/50"
                             >
@@ -641,6 +740,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         onLineClick={handleLineClick}
                         onInsertLine={handleInsertLine}
                         onTextChange={handleTextChange}
+                        onDeleteLine={handleDeleteLine}
                     />
                     {/* Gradient overlay for fading at top/bottom */}
                     <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-slate-950 to-transparent pointer-events-none"></div>
