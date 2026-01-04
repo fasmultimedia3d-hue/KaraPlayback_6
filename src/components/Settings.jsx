@@ -118,10 +118,7 @@ const Settings = ({ onBack }) => {
                             <span>Engine</span>
                             <span className="text-white">WaveSurfer.js + React</span>
                         </div>
-                        <div className="flex justify-between">
-                            <span>AI Assistant</span>
-                            <span className="text-white">Antigravity (Deepmind)</span>
-                        </div>
+
                     </div>
                 </section>
 

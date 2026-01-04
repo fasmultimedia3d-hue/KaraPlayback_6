@@ -161,37 +161,37 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
             )}
 
             {/* Header - Fixed height/shrink-0 */}
-            <div className="flex justify-between items-center px-6 pt-0 pb-3 landscape:pt-0 landscape:pb-1.5 shrink-0">
-                <div className="flex items-center gap-4">
+            <div className="flex justify-between items-center px-4 pt-0 pb-3 landscape:pt-0 landscape:pb-1.5 shrink-0">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
                     {currentFolderId && (
-                        <button onClick={() => setCurrentFolderId(null)} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
+                        <button onClick={() => setCurrentFolderId(null)} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
                             <ArrowLeft size={24} />
                         </button>
                     )}
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate max-w-[300px]">
+                    <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate max-w-[90px] xs:max-w-[150px] sm:max-w-[300px]">
                         {currentFolderName}
                     </h1>
                 </div>
 
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 sm:gap-4 items-center shrink-0">
                     {hasActiveProject && (
-                        <button onClick={onReturnToPlayer} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-fuchsia-600/20 active:scale-95">
+                        <button onClick={onReturnToPlayer} className="flex items-center gap-2 px-3 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-fuchsia-600/20 active:scale-95 ml-2 sm:ml-4 shrink-0">
                             <Play size={14} fill="currentColor" />
                             <span className="hidden sm:inline">En Reproducción</span>
                         </button>
                     )}
-                    <button onClick={onOpenSettings} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white mr-2">
+                    <button onClick={onOpenSettings} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white ml-2 sm:ml-4 shrink-0">
                         <Settings size={24} />
                     </button>
-                    <div className="h-6 w-px bg-slate-800 mx-2"></div>
-                    <button onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
+                    <div className="h-6 w-px bg-slate-800 mx-2 sm:mx-4 shrink-0"></div>
+                    <button onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
                         {viewMode === 'grid' ? <List size={24} /> : <LayoutGrid size={24} />}
                     </button>
-                    <button onClick={handleCreateFolder} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-full font-medium transition">
+                    <button onClick={handleCreateFolder} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-full font-medium transition shrink-0">
                         <FolderPlus size={20} className="text-blue-400" />
                         <span className="hidden md:inline">New Folder</span>
                     </button>
-                    <button onClick={() => onSelectProject(null, currentFolderId)} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 px-4 py-2 rounded-full font-medium transition shadow-lg shadow-violet-600/20">
+                    <button onClick={() => onSelectProject(null, currentFolderId)} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 px-3 sm:px-4 py-2 rounded-full font-medium transition shadow-lg shadow-violet-600/20 shrink-0">
                         <Plus size={20} />
                         <span className="hidden md:inline">New Project</span>
                     </button>

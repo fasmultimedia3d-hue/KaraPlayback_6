@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Music, FileText, Settings, Upload, ArrowLeft, Save, Folder, Edit3, Check, MousePointer2, Lock, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Music, FileText, Settings, Upload, ArrowLeft, Save, Folder, Edit3, Check, MousePointer2, Lock, ChevronLeft, ChevronRight, X, Clock } from 'lucide-react';
 import { audioEngine } from '../services/AudioEngine';
 import LyricsDisplay from './LyricsDisplay';
 import PDFViewer from './PDFViewer';
@@ -295,7 +295,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
     // --- Memoized Components ---
     const Header = useMemo(() => (
-        <div className="portrait:pt-safe landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top">
+        <div className="portrait:pt-safe landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top pr-16 portrait:pr-16">
             <div className={`flex items-center gap-4 landscape:gap-2 px-1.5 pt-0 pb-0.5 landscape:px-1 landscape:py-0 ${isEditing ? 'landscape:py-0' : ''}`}>
                 <button onClick={onBack} className="p-2 landscape:p-1 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
                     <ArrowLeft size={20} className="landscape:w-4 landscape:h-4" />
@@ -304,12 +304,11 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     {title}
                 </h1>
             </div>
-            <div className={`flex gap-2 items-center px-1.5 pt-0 pb-0.5 pr-8 landscape:px-1 landscape:py-0 landscape:pr-20 ${isEditing ? 'landscape:py-0' : ''}`}>
+            <div
+                className={`flex gap-3 sm:gap-4 items-center px-1.5 pt-0 pb-0.5 pr-2 landscape:px-1 landscape:py-0 landscape:pr-20 ${isEditing ? 'landscape:py-0' : ''}`}
+            >
                 {isEditing && (
                     <>
-                        <button onClick={() => setShowSaveModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Save to Library">
-                            <Save size={18} className="landscape:w-4 landscape:h-4" />
-                        </button>
                         <label className="cursor-pointer p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Load Audio">
                             <Music size={18} className="landscape:w-4 landscape:h-4" />
                             <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
@@ -334,10 +333,17 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                 </button>
                 {isEditing && (
                     <>
-                        <button onClick={() => setAutoScroll(!autoScroll)} className={`p-1.5 landscape:p-1.5 rounded-full transition icon-btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>
+                        <button onClick={() => setAutoScroll(!autoScroll)} className={`p-1.5 landscape:p-1.5 rounded-full transition icon-btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`} title="Auto-scroll">
                             {autoScroll ? <MousePointer2 size={18} className="landscape:w-4 landscape:h-4" /> : <Lock size={18} className="landscape:w-4 landscape:h-4" />}
                         </button>
-                        <button onClick={() => setShowExportModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn">
+                        <button onClick={() => setShowSaveModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Save to Library">
+                            <Save size={18} className="landscape:w-4 landscape:h-4" />
+                        </button>
+                        <button
+                            onClick={() => setShowExportModal(true)}
+                            className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn"
+                            title="Export"
+                        >
                             <Upload size={18} className="landscape:w-4 landscape:h-4" />
                         </button>
                     </>
@@ -348,9 +354,8 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
     console.log("Player Rendering. InitialProject:", initialProject);
 
-    // Memoized Footer for Performance
     const Footer = useMemo(() => (
-        <div className="bg-slate-900/80 backdrop-blur-lg border-t border-white/10 p-2 pb-5 landscape:p-1 landscape:pb-2 rounded-t-3xl landscape:rounded-t-xl shadow-2xl relative z-20">
+        <div className="bg-slate-900/80 backdrop-blur-lg border-t border-white/10 p-2 pb-10 landscape:p-1 landscape:pb-2 rounded-t-3xl landscape:rounded-t-xl shadow-2xl relative z-20">
             {/* Stable Timeline (Progress Bar) */}
             <div className="mb-2 px-2">
                 <input
@@ -367,21 +372,20 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                 />
             </div>
 
-            <div className="flex flex-col gap-2 max-w-2xl mx-auto">
+            <div className="flex flex-col gap-0 max-w-2xl mx-auto">
                 {/* Timeline info */}
-                <div className="flex justify-between text-[10px] landscape:text-[8px] font-mono text-slate-400 px-1 -mt-2 landscape:mt-0">
+                <div className="flex justify-between text-[10px] landscape:text-[8px] font-mono text-slate-400 px-1">
                     <span>{formatTime(currentTime)}</span>
                     <span>{formatTime(duration)}</span>
                 </div>
 
-                {/* PDF Toggle Row - Hidden in landscape to save space */}
-                {pdfBlob && (
-                    <div className="flex justify-center -mb-2 landscape:hidden">
+                {pdfBlob ? (
+                    <div className="flex justify-center landscape:hidden mt-[-6px] mb-4">
                         <button
                             onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
-                            className={`group flex items-center gap-2 px-5 py-1.5 rounded-full transition-all duration-300 text-[9px] font-black uppercase tracking-[0.2em] border shadow-lg hover:scale-105 active:scale-95
+                            className={`group flex items-center gap-2 px-5 py-1.5 rounded-full transition-all duration-300 text-[9px] font-black uppercase tracking-[0.2em] border hover:scale-105 active:scale-95
                                 ${viewMode === 'pdf'
-                                    ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50 shadow-fuchsia-900/40'
+                                    ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
                                     : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500 shadow-black/60'}
                             `}
                         >
@@ -389,10 +393,12 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                             {viewMode === 'pdf' ? 'VER LETRA' : 'VER PDF ORIGINAL'}
                         </button>
                     </div>
+                ) : (
+                    <div className="h-2 landscape:hidden"></div>
                 )}
 
                 {/* Playback Controls & Settings combined in Landscape */}
-                <div className="flex landscape:flex-row flex-col gap-2 landscape:gap-0 items-center w-full px-4 landscape:px-0 landscape:justify-between">
+                <div className="flex landscape:flex-row flex-col gap-4 landscape:gap-0 items-center w-full px-4 landscape:px-0 landscape:justify-between">
                     <div className="grid grid-cols-3 items-center w-full landscape:w-auto landscape:flex landscape:gap-14">
                         <div className="flex justify-start">
                             <button
@@ -409,7 +415,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         <div className="flex justify-center">
                             <button
                                 onClick={togglePlay}
-                                className="p-3 landscape:p-2 bg-violet-600 hover:bg-violet-500 rounded-full text-white shadow-xl shadow-violet-600/40 transition-all hover:scale-110 active:scale-95 border-b-2 border-violet-800 active:border-b-0"
+                                className="p-3 landscape:p-2 bg-violet-600 hover:bg-violet-500 rounded-full text-white transition-all hover:scale-110 active:scale-95 border-b-2 border-violet-800 active:border-b-0"
                             >
                                 {isPlaying ? <Pause size={28} className="landscape:w-5 landscape:h-5" fill="currentColor" /> : <Play size={28} className="landscape:w-5 landscape:h-5 ml-0.5" fill="currentColor" />}
                             </button>
@@ -592,6 +598,14 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                 onClick={async () => {
                                     if (!lyrics.length) return alert("No lyrics to export");
                                     if (!audioBlob) return alert("No audio loaded to export");
+                                    if (!lyrics.length) {
+                                        // alert("No lyrics to export"); // Removed debug alert
+                                        return;
+                                    }
+                                    if (!audioBlob) {
+                                        // alert("No audio loaded to export"); // Removed debug alert
+                                        return;
+                                    }
 
                                     const metadata = {
                                         title,
@@ -606,18 +620,41 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                         if (Capacitor.isNativePlatform()) {
                                             try {
                                                 const base64 = await blobToBase64(blob);
-                                                const result = await Filesystem.writeFile({
+
+                                                // 1. Save to permanent location
+                                                try {
+                                                    await Filesystem.mkdir({
+                                                        path: 'KaraPlayback/Exports',
+                                                        directory: Directory.Documents,
+                                                        recursive: true
+                                                    });
+                                                } catch (e) { /* Already exists */ }
+
+                                                const saveResult = await Filesystem.writeFile({
+                                                    path: `KaraPlayback/Exports/${filename}`,
+                                                    data: base64,
+                                                    directory: Directory.Documents,
+                                                    encoding: 'base64'
+                                                });
+
+                                                // 2. Also write to cache for sharing
+                                                const cacheResult = await Filesystem.writeFile({
                                                     path: filename,
                                                     data: base64,
-                                                    directory: Directory.Cache
+                                                    directory: Directory.Cache,
+                                                    encoding: 'base64'
                                                 });
+
+                                                alert(`¡Proyecto guardado en tu móvil!\nUbicación: Documentos/KaraPlayback/Exports/${filename}`);
+
                                                 await Share.share({
-                                                    title: 'Export KaraPlayback Project',
-                                                    url: result.uri,
+                                                    title: 'Save Project',
+                                                    url: cacheResult.uri,
+                                                    dialogTitle: 'Save KaraPlayback Project'
                                                 });
                                             } catch (err) {
-                                                console.error("Native share failed", err);
-                                                alert("Share failed: " + err.message);
+                                                console.error("Native export failed", err);
+                                                alert("Export failed: " + err.message);
                                             }
                                         } else if (window.showSaveFilePicker) {
                                             const handle = await window.showSaveFilePicker({
@@ -670,18 +707,42 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                         if (Capacitor.isNativePlatform()) {
                                             try {
                                                 const base64 = await blobToBase64(blob);
-                                                const result = await Filesystem.writeFile({
+
+                                                // 1. Save to permanent location
+                                                let savePath = filename;
+                                                try {
+                                                    await Filesystem.mkdir({
+                                                        path: 'KaraPlayback',
+                                                        directory: Directory.Documents,
+                                                        recursive: true
+                                                    });
+                                                    savePath = `KaraPlayback/${filename}`;
+                                                } catch (e) { }
+
+                                                await Filesystem.writeFile({
+                                                    path: savePath,
+                                                    data: base64,
+                                                    directory: Directory.Documents,
+                                                    encoding: 'base64'
+                                                });
+
+                                                alert(`¡Letra guardada!\nUbicación: Documentos/${savePath}`);
+
+                                                const cacheResult = await Filesystem.writeFile({
                                                     path: filename,
                                                     data: base64,
-                                                    directory: Directory.Cache
+                                                    directory: Directory.Cache,
+                                                    encoding: 'base64'
                                                 });
+
                                                 await Share.share({
-                                                    title: 'Export Lyrics',
-                                                    url: result.uri,
+                                                    title: 'Save Lyrics',
+                                                    url: cacheResult.uri,
+                                                    dialogTitle: 'Save Lyrics File'
                                                 });
                                             } catch (err) {
-                                                console.error("Native share failed", err);
-                                                alert("Share failed: " + err.message);
+                                                console.error("Native export failed", err);
+                                                alert("Lyrics export error: " + err.message);
                                             }
                                         } else if (window.showSaveFilePicker) {
                                             const handle = await window.showSaveFilePicker({
@@ -786,7 +847,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                         onClick={handleSyncPage}
                                         className="flex items-center gap-2 px-4 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition shadow-lg shadow-fuchsia-600/20 active:scale-95"
                                     >
-                                        <Save size={14} />
+                                        <Clock size={14} />
                                         <span>Sincronizar</span>
                                     </button>
                                 </>
