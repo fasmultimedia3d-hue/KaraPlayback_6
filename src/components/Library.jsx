@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Play, Trash2, Search, Music, Folder, ArrowLeft, FolderPlus, MoveRight, Settings, X, LayoutGrid, List, Pencil } from 'lucide-react';
+import { Plus, Play, Trash2, Search, Music, Folder, ArrowLeft, FolderPlus, MoveRight, Settings, X, LayoutGrid, List, Pencil, Upload } from 'lucide-react';
 import { StorageService } from '../services/StorageService';
+import { ProjectService } from '../services/ProjectService';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 
 // Simple Modal Component for Folder Selection
 const FolderSelector = ({ folders, onClose, onSelect, currentParentId }) => {
@@ -45,6 +49,197 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
 
     const [itemToMove, setItemToMove] = useState(null);
     const [showMoveModal, setShowMoveModal] = useState(false);
+    const [itemWithOptionsVisible, setItemWithOptionsVisible] = useState(null);
+    const [longPressTimer, setLongPressTimer] = useState(null);
+    const [isImporting, setIsImporting] = useState(false);
+
+    const handleImportPackage = async () => {
+        console.log('Import button clicked');
+
+        // Define variables at the very top scope of the function to avoid ReferenceError in finally block
+        let tempZipPath = null;
+        let blob = null;
+        let importStrategy = 'unknown';
+
+        try {
+            // 1. Pick file without reading data (avoid OOM)
+            const result = await FilePicker.pickFiles({
+                types: ['application/octet-stream', 'application/zip', '*/*'],
+                multiple: false,
+                readData: false
+            });
+
+            if (!result || !result.files || result.files.length === 0) return;
+            const file = result.files[0];
+            console.log('File selected:', file.name, 'Size:', file.size, 'Path:', file.path, 'WebPath:', file.webPath);
+
+            setIsImporting(true);
+
+            // STRATEGY: Hybrid - Try Copy (preferred) or Direct Fetch
+            try {
+                // If it's a real file path (not content://), we copy it to cache for stability
+                if (file.path && !file.path.startsWith('content://')) {
+                    importStrategy = 'copy-to-cache';
+                    console.log('Strategy: Copy to Cache');
+                    const destName = `import_temp_${Date.now()}.zip`;
+
+                    await Filesystem.copy({
+                        from: file.path,
+                        to: destName,
+                        directory: Directory.Cache
+                    });
+
+                    tempZipPath = destName;
+
+                    const uriResult = await Filesystem.getUri({
+                        path: destName,
+                        directory: Directory.Cache
+                    });
+
+                    const cacheUri = Capacitor.convertFileSrc(uriResult.uri);
+                    const response = await fetch(cacheUri);
+                    blob = await response.blob();
+                } else {
+                    importStrategy = 'direct-webpath';
+                    console.log('Strategy: Direct WebPath (content URI detected or no path)');
+                    // If webPath is undefined (common on some androids), try converting path
+                    const fetchUrl = file.webPath || (file.path ? Capacitor.convertFileSrc(file.path) : null);
+
+                    if (fetchUrl) {
+                        const response = await fetch(fetchUrl);
+                        if (!response.ok) throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+                        blob = await response.blob();
+                    }
+                }
+            } catch (copyError) {
+                console.warn('Strategy failed:', copyError);
+                importStrategy += '-failed:' + copyError.message;
+            }
+
+            if (!blob) throw new Error('No se pudo leer el archivo (Blob nulo). Intenta moverlo a una carpeta interna.');
+            if (blob.size === 0) throw new Error('El archivo leído tiene 0 bytes.');
+
+            // FIX: Detect Base64 wrapped response (Common in Capacitor content:// fetches)
+            // Signature "UEsD" (Hex: 55 45 73 44) corresponds to Base64 encoded "PK.." (Zip)
+            try {
+                const headerSlice = await blob.slice(0, 4).arrayBuffer();
+                const headerHex = Array.from(new Uint8Array(headerSlice)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+
+                if (headerHex === '55 45 73 44') {
+                    console.log('Detected Base64 encoded ZIP blob (UEsD header). Decoding...');
+                    const base64Text = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.readAsText(blob);
+                    });
+
+                    // Simple Base64 clean up (remove data: prefixes if any, though likely pure base64 here)
+                    const rawBase64 = base64Text.includes(',') ? base64Text.split(',')[1] : base64Text;
+
+                    // Decode
+                    const binaryString = atob(rawBase64.replace(/[\n\r\s]/g, ''));
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    blob = new Blob([bytes], { type: 'application/zip' });
+                    console.log('Base64 decoded. New Blob size:', blob.size);
+                }
+            } catch (b64Error) {
+                console.warn('Base64 check failed, proceeding with original blob:', b64Error);
+            }
+
+            // Unpack
+            let metadata, audioBlob, pdfBlob;
+            try {
+                const fileObj = new File([blob], file.name, { type: file.mimeType || 'application/zip' });
+                const result = await ProjectService.unpackProject(fileObj);
+                metadata = result.metadata;
+                audioBlob = result.audioBlob;
+                pdfBlob = result.pdfBlob;
+            } catch (unzipError) {
+                // Fallback: Legacy JSON Check
+                try {
+                    const text = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsText(blob);
+                    });
+
+                    if (text && text.trim().startsWith('{')) {
+                        console.log('Detected Legacy JSON');
+                        const json = JSON.parse(text);
+                        metadata = json;
+                        audioBlob = null;
+                        pdfBlob = null;
+                    } else {
+                        throw unzipError;
+                    }
+                } catch (jsonError) {
+                    throw unzipError;
+                }
+            }
+
+            // Save logic
+            const projectData = {
+                title: metadata.title || file.name.replace(/\.(karaoke|zip)$/, ''),
+                lyrics: metadata.lyrics || [],
+                audioSettings: metadata.audioSettings || { speed: 1.0, pitch: 0 },
+                pdfPageTimestamps: metadata.pdfPageTimestamps || {},
+                audioBlobRef: audioBlob,
+                pdfBlob: pdfBlob || metadata.pdfBlob || null, // Prefer extracted blob, fallback to legacy metadata
+                parentId: currentFolderId
+            };
+
+            await StorageService.saveProject(projectData);
+            await loadItems();
+
+            alert(`Proyecto "${projectData.title}" importado exitosamente`);
+
+        } catch (e) {
+            console.error('Import failed', e);
+
+            // ERROR DEBUGGING
+            let debugInfo = `Strategy: ${importStrategy}`;
+            try {
+                if (blob) {
+                    debugInfo += `\nSize: ${blob.size}`;
+                    const headerData = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = () => resolve(null);
+                        reader.readAsArrayBuffer(blob.slice(0, 16));
+                    });
+
+                    if (headerData) {
+                        const arr = new Uint8Array(headerData);
+                        const hex = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                        // Replace non-printable chars with dot
+                        const text = Array.from(arr).map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
+                        debugInfo += `\nHex: ${hex}`;
+                        debugInfo += `\nText: ${text}`;
+                    } else {
+                        debugInfo += '\n(Read Header Failed)';
+                    }
+                }
+            } catch (err) { debugInfo += `\nDebugReadErr: ${err.message}`; }
+
+            if (e.message.includes('OutOfMemory')) {
+                alert('Error: Archivo demasiado grande (OOM).');
+            } else {
+                alert(`Error Técnico:\n${e.message}\n${debugInfo}\n\nTIP: El archivo podría estar dañado o vacío.`);
+            }
+        } finally {
+            // Cleanup Temp File
+            if (tempZipPath) {
+                try {
+                    await Filesystem.deleteFile({ path: tempZipPath, directory: Directory.Cache });
+                } catch (e) { console.warn('Cleanup failed:', e); }
+            }
+            setIsImporting(false);
+        }
+    };
 
     useEffect(() => {
         loadItems();
@@ -150,7 +345,7 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
     );
 
     return (
-        <div className="absolute inset-0 bg-slate-950 text-slate-100 overflow-hidden flex flex-col pt-safe">
+        <div className="absolute inset-0 bg-slate-950 text-slate-100 overflow-hidden flex flex-col portrait:pt-safe landscape:pt-5">
             {showMoveModal && (
                 <FolderSelector
                     folders={availableFolders}
@@ -162,13 +357,13 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
 
             {/* Header - Fixed height/shrink-0 */}
             <div className="flex justify-between items-center px-4 pt-0 pb-3 landscape:pt-0 landscape:pb-1.5 shrink-0">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
                     {currentFolderId && (
                         <button onClick={() => setCurrentFolderId(null)} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
                             <ArrowLeft size={24} />
                         </button>
                     )}
-                    <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate max-w-[90px] xs:max-w-[150px] sm:max-w-[300px]">
+                    <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate leading-normal py-1 flex-1 min-w-0">
                         {currentFolderName}
                     </h1>
                 </div>
@@ -183,18 +378,23 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                     <button onClick={onOpenSettings} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white ml-2 sm:ml-4 shrink-0">
                         <Settings size={24} />
                     </button>
+                    <button onClick={handleImportPackage} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white cursor-pointer shrink-0" title="Importar Proyecto">
+                        <Upload size={24} />
+                    </button>
                     <div className="h-6 w-px bg-slate-800 mx-2 sm:mx-4 shrink-0"></div>
-                    <button onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
-                        {viewMode === 'grid' ? <List size={24} /> : <LayoutGrid size={24} />}
-                    </button>
-                    <button onClick={handleCreateFolder} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-full font-medium transition shrink-0">
-                        <FolderPlus size={20} className="text-blue-400" />
-                        <span className="hidden md:inline">New Folder</span>
-                    </button>
-                    <button onClick={() => onSelectProject(null, currentFolderId)} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 px-3 sm:px-4 py-2 rounded-full font-medium transition shadow-lg shadow-violet-600/20 shrink-0">
-                        <Plus size={20} />
-                        <span className="hidden md:inline">New Project</span>
-                    </button>
+                    <div className="flex items-center gap-4 sm:gap-5">
+                        <button onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
+                            {viewMode === 'grid' ? <List size={24} /> : <LayoutGrid size={24} />}
+                        </button>
+                        <button onClick={handleCreateFolder} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-full font-medium transition shrink-0">
+                            <FolderPlus size={20} className="text-blue-400" />
+                            <span className="hidden md:inline">New Folder</span>
+                        </button>
+                        <button onClick={() => onSelectProject(null, currentFolderId)} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 px-3 sm:px-4 py-2 rounded-full font-medium transition shadow-lg shadow-violet-600/20 shrink-0">
+                            <Plus size={20} />
+                            <span className="hidden md:inline">New Project</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -222,7 +422,29 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                     {displayedItems.map(item => (
                         <div
                             key={item.id}
+                            onTouchStart={(e) => {
+                                const timer = setTimeout(() => {
+                                    setItemWithOptionsVisible(item.id);
+                                }, 2000);
+                                setLongPressTimer(timer);
+                            }}
+                            onTouchEnd={() => {
+                                if (longPressTimer) {
+                                    clearTimeout(longPressTimer);
+                                    setLongPressTimer(null);
+                                }
+                            }}
+                            onTouchMove={() => {
+                                if (longPressTimer) {
+                                    clearTimeout(longPressTimer);
+                                    setLongPressTimer(null);
+                                }
+                            }}
                             onClick={() => {
+                                if (itemWithOptionsVisible === item.id) {
+                                    setItemWithOptionsVisible(null);
+                                    return;
+                                }
                                 if (item.type === 'folder') {
                                     setCurrentFolderId(item.id);
                                     setSearchTerm('');
@@ -231,26 +453,26 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                                 }
                             }}
                             className={`group border border-white/5 rounded-2xl cursor-pointer transition-all duration-300 relative overflow-hidden flex-none 
-                                ${item.type === 'folder'
+                                    ${item.type === 'folder'
                                     ? 'bg-slate-800/40 hover:bg-slate-800/60 border-blue-500/10 hover:border-blue-500/30'
                                     : 'bg-slate-900/50 hover:bg-slate-800 hover:border-violet-500/30'}
-                                ${viewMode === 'grid' ? 'p-5 py-4 min-h-[112px]' : 'py-2 px-3 min-h-[60px] flex items-center justify-between'}
-                            `}
+                                    ${viewMode === 'grid' ? 'p-5 py-4 min-h-[112px]' : 'py-2 px-3 min-h-[60px] flex items-center justify-between'}
+                                `}
                         >
                             <div className={`flex justify-between items-start w-full ${viewMode === 'list' && 'items-center gap-5'}`}>
                                 <div className={`flex items-center gap-4 ${viewMode === 'list' ? 'flex-1 min-w-0' : 'w-full min-w-0'}`}>
                                     <div className={`rounded-full flex items-center justify-center shrink-0 transition
-                                        ${item.type === 'folder'
+                                            ${item.type === 'folder'
                                             ? 'bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20'
                                             : 'bg-slate-800 text-slate-400 group-hover:bg-violet-500/20 group-hover:text-violet-400'}
-                                        ${viewMode === 'grid' ? 'w-14 h-14' : 'w-11 h-11'}
-                                    `}>
+                                            ${viewMode === 'grid' ? 'w-14 h-14' : 'w-11 h-11'}
+                                        `}>
                                         {item.type === 'folder' ? <Folder size={viewMode === 'grid' ? 28 : 22} /> : <Music size={viewMode === 'grid' ? 28 : 22} />}
                                     </div>
                                     <div className={`${viewMode === 'list' ? 'flex-1 min-w-0 pr-3' : 'w-full min-w-0'}`}>
                                         <h3 className={`font-semibold transition-all
-                                            ${viewMode === 'grid' ? 'text-lg leading-tight line-clamp-2' : 'text-base leading-tight truncate'}
-                                        `}>
+                                                ${viewMode === 'grid' ? 'text-lg leading-tight line-clamp-2' : 'text-base leading-tight truncate'}
+                                            `}>
                                             {item.title}
                                         </h3>
                                         <p className="text-sm text-slate-500 truncate">
@@ -264,10 +486,10 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                                 </div>
 
                                 <div className={`flex gap-1 shrink-0 transition 
-                                    ${viewMode === 'grid'
-                                        ? 'absolute top-2 right-2 bg-slate-900/90 backdrop-blur-md rounded-xl opacity-0 group-hover:opacity-100 p-1 shadow-2xl border border-white/10'
-                                        : 'opacity-100'}
-                                `}>
+                                        ${viewMode === 'grid'
+                                        ? `absolute top-2 right-2 bg-slate-900/90 backdrop-blur-md rounded-xl p-1 shadow-2xl border border-white/10 ${itemWithOptionsVisible === item.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`
+                                        : itemWithOptionsVisible === item.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+                                    `}>
                                     <button onClick={(e) => handleRename(item, e)} className="p-2 hover:text-green-400 transition" title="Rename"><Pencil size={18} /></button>
                                     <button onClick={(e) => initiateMove(e, item)} className="p-2 hover:text-blue-400 transition" title="Move to..."><MoveRight size={18} /></button>
                                     <button onClick={(e) => handleDelete(item.id, item.type, e)} className="p-2 hover:text-red-400 transition" title="Delete"><Trash2 size={18} /></button>
@@ -295,6 +517,17 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                     )}
                 </div>
             </div>
+
+            {/* Loading Overlay */}
+            {isImporting && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+                    <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl flex flex-col items-center shadow-2xl animate-fade-in">
+                        <div className="animate-spin w-10 h-10 border-4 border-violet-500 border-t-transparent rounded-full mb-4"></div>
+                        <p className="text-white font-medium text-lg">Importando proyecto...</p>
+                        <p className="text-slate-400 text-sm mt-1">Procesando audio y datos</p>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

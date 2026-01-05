@@ -6,9 +6,10 @@ export const ProjectService = {
      * Package project into a ZIP blob
      * @param {Object} metadata - { title, lyrics, audioSettings, etc }
      * @param {Blob} audioBlob - The actual audio file
+     * @param {Blob|null} pdfBlob - The PDF score file (optional)
      * @returns {Promise<Blob>}
      */
-    packProject: async (metadata, audioBlob) => {
+    packProject: async (metadata, audioBlob, pdfBlob) => {
         const zip = new JSZip();
 
         // Add metadata
@@ -23,6 +24,11 @@ export const ProjectService = {
 
         zip.file(`audio.${ext}`, audioBlob);
 
+        // Add PDF if exists
+        if (pdfBlob) {
+            zip.file("score.pdf", pdfBlob);
+        }
+
         // Generate ZIP
         return await zip.generateAsync({ type: "blob" });
     },
@@ -30,7 +36,7 @@ export const ProjectService = {
     /**
      * Unpack a project ZIP file
      * @param {File} zipFile 
-     * @returns {Promise<{metadata: Object, audioBlob: Blob}>}
+     * @returns {Promise<{metadata: Object, audioBlob: Blob, pdfBlob: Blob|null}>}
      */
     unpackProject: async (zipFile) => {
         try {
@@ -55,7 +61,16 @@ export const ProjectService = {
 
             console.log("Unpacked:", audioFilename, typedBlob.type);
 
-            return { metadata, audioBlob: typedBlob };
+            // Read PDF (Optional)
+            let pdfBlob = null;
+            const pdfFilename = Object.keys(zip.files).find(name => name.endsWith(".pdf")); // usually score.pdf
+            if (pdfFilename) {
+                const pdfData = await zip.file(pdfFilename).async("blob");
+                pdfBlob = new Blob([pdfData], { type: 'application/pdf' });
+                console.log("Unpacked PDF:", pdfFilename);
+            }
+
+            return { metadata, audioBlob: typedBlob, pdfBlob };
         } catch (e) {
             console.error("Failed to unpack project", e);
             throw new Error("Invalid Project Package: " + e.message);

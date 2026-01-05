@@ -1,5 +1,14 @@
 {
   "appId": "com.karaplayback.app",
   "appName": "KaraPlayback",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#666666",
+      "showSpinner": true,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true
+    }
+  }
 }
