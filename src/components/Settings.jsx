@@ -37,7 +37,7 @@ const Settings = ({ onBack }) => {
     };
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 text-slate-100 p-6 portrait:pt-[max(2rem,env(safe-area-inset-top))] animate-fade-in">
+        <div className="flex flex-col h-screen bg-slate-950 text-slate-100 p-6 portrait:pt-[max(2rem,env(safe-area-inset-top))] animate-fade-in overflow-y-auto">
             {/* Header */}
             <div className="flex items-center gap-4 mb-2">
                 <button

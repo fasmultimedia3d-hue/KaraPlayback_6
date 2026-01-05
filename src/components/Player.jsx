@@ -62,24 +62,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // Visibility Ref for Event Listeners
     const shouldUpdateVisualsRef = useRef(isVisible);
 
-    // Auto-paging logic for PDF
-    useEffect(() => {
-        if (viewMode !== 'pdf' || !isPlaying) return;
 
-        // Find the correct page for the current time
-        const entries = Object.entries(pdfPageTimestamps);
-        if (entries.length === 0) return;
-
-        // Sort by time
-        const sorted = entries
-            .map(([pg, t]) => ({ page: parseInt(pg), time: t }))
-            .sort((a, b) => b.time - a.time);
-
-        const currentEntry = sorted.find(e => e.time <= currentTime);
-        if (currentEntry && currentEntry.page !== pdfCurrentPage) {
-            setPdfCurrentPage(currentEntry.page);
-        }
-    }, [currentTime, viewMode, isPlaying, pdfPageTimestamps]);
 
     useEffect(() => {
         if (isVisible) {
@@ -227,13 +210,66 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         setIsSynced(true);
     }, [isEditing]);
 
+    // PDF Ref for imperative scroll
+    const pdfViewerRef = useRef(null);
+
     const handleSyncPage = useCallback(() => {
-        if (!isEditing || viewMode !== 'pdf') return;
-        setPdfPageTimestamps(prev => ({
-            ...prev,
-            [pdfCurrentPage]: audioEngine.getCurrentTime()
-        }));
-    }, [isEditing, viewMode, pdfCurrentPage]);
+        if (!isEditing || viewMode !== 'pdf' || !pdfViewerRef.current) return;
+
+        // Get precise scroll info { page, offset }
+        const scrollInfo = pdfViewerRef.current.getCurrentScroll();
+        if (!scrollInfo) return;
+
+        const time = audioEngine.getCurrentTime();
+
+        // Add new sync point
+        setPdfPageTimestamps(prev => {
+            // Migrating to array structure if it's currently an object
+            const currentPoints = Array.isArray(prev) ? prev : Object.entries(prev).map(([p, t]) => ({ page: parseInt(p), time: t, offset: 0 }));
+
+            // Remove existing points near this time (optional cleanup) or just append
+            // Better: Filter out points that are extremely close in time to avoid duplicates?
+            // For now, simple append and sort.
+
+            const newPoints = [...currentPoints, { time, page: scrollInfo.page, offset: scrollInfo.offset }];
+
+            // Sort by time
+            return newPoints.sort((a, b) => a.time - b.time);
+        });
+    }, [isEditing, viewMode]);
+
+    // Auto-paging logic for PDF (Updated for Sub-Page Sync)
+    useEffect(() => {
+        if (viewMode !== 'pdf' || !isPlaying) return;
+
+        // Use array structure directly if available, otherwise migrate simple object momentarily
+        const points = Array.isArray(pdfPageTimestamps)
+            ? pdfPageTimestamps
+            : Object.entries(pdfPageTimestamps).map(([pg, t]) => ({ page: parseInt(pg), time: t, offset: 0 })).sort((a, b) => b.time - a.time); // Descending for find
+
+        if (points.length === 0) return;
+
+        // Find the LATEST point passed
+        // Since we want the one with time <= currentTime with largest time
+        // If sorting descending (b.time - a.time):
+        // const currentPoint = points.find(p => p.time <= currentTime);
+
+        // If sorting ascending (default in handleSync):
+        // We need to reverse or findLast
+        const sortedAsc = [...points].sort((a, b) => a.time - b.time);
+        let targetPoint = null;
+        for (const p of sortedAsc) {
+            if (p.time <= currentTime) {
+                targetPoint = p;
+            } else {
+                break;
+            }
+        }
+
+        if (targetPoint && pdfViewerRef.current) {
+            pdfViewerRef.current.scrollTo({ page: targetPoint.page, offset: targetPoint.offset });
+        }
+    }, [currentTime, viewMode, isPlaying, pdfPageTimestamps]);
 
     const handleDeleteLine = useCallback((index) => {
         if (!window.confirm("Are you sure you want to delete this line?")) return;
@@ -405,6 +441,9 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                 onClick={() => {
                                     audioEngine.seekTo(0);
                                     setCurrentTime(0);
+                                    if (viewMode === 'pdf' && pdfViewerRef.current) {
+                                        pdfViewerRef.current.scrollTo({ page: 1, offset: 0 });
+                                    }
                                 }}
                                 className="p-2 text-slate-400 hover:text-white transition transform hover:scale-110 active:scale-90"
                                 title="Reiniciar canción"
@@ -808,46 +847,31 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     <div className={`absolute inset-0 bg-slate-900 transition-all duration-500 overflow-hidden flex flex-col ${viewMode === 'pdf' ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-105 z-0 pointer-events-none'}`}>
                         <div className="flex-1 overflow-hidden">
                             <PDFViewer
+                                ref={pdfViewerRef}
                                 file={pdfBlob}
-                                currentPage={pdfCurrentPage}
                                 onPageLoad={setPdfTotalPages}
+                                onPageVisible={setPdfCurrentPage}
                             />
                         </div>
 
-                        {/* PDF Page Controls Overlay - Semi-transparent by default */}
-                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-950/60 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 shadow-2xl z-20 transition-all duration-300 opacity-50 hover:opacity-100 hover:scale-105 hover:bg-slate-950/80">
-                            <button
-                                onClick={() => setPdfCurrentPage(p => Math.max(1, p - 1))}
-                                className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"
-                                title="Previous Page"
-                            >
-                                <ChevronLeft size={20} />
-                            </button>
-                            <div className="flex flex-col items-center min-w-[80px]">
-                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Página</span>
-                                <span className="text-sm font-mono font-black text-fuchsia-400">{pdfCurrentPage} / {pdfTotalPages || '?'}</span>
-                            </div>
-                            <button
-                                onClick={() => setPdfCurrentPage(p => Math.min(pdfTotalPages, p + 1))}
-                                className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"
-                                title="Next Page"
-                            >
-                                <ChevronRight size={20} />
-                            </button>
+                        {/* PDF Sync Overlay - Visible ONLY in Edit Mode */}
+                        {isEditing && (
+                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-950/80 backdrop-blur-md px-6 py-3 rounded-full border border-fuchsia-500/30 shadow-2xl z-20 transition-all duration-300 animate-fade-in">
+                                <div className="flex flex-col items-center min-w-[60px] border-r border-white/10 pr-4 mr-1">
+                                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Página</span>
+                                    <span className="text-xl font-mono font-black text-white">{pdfCurrentPage} <span className="text-sm text-slate-500 font-normal">/ {pdfTotalPages || '?'}</span></span>
+                                </div>
 
-                            {isEditing && (
-                                <>
-                                    <div className="w-px h-8 bg-white/10 mx-2"></div>
-                                    <button
-                                        onClick={handleSyncPage}
-                                        className="flex items-center gap-2 px-4 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition shadow-lg shadow-fuchsia-600/20 active:scale-95"
-                                    >
-                                        <Clock size={14} />
-                                        <span>Sincronizar</span>
-                                    </button>
-                                </>
-                            )}
-                        </div>
+                                <button
+                                    onClick={handleSyncPage}
+                                    className="flex items-center gap-2 px-6 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-xs font-black uppercase tracking-widest transition shadow-lg shadow-fuchsia-600/20 active:scale-95 mx-1"
+                                >
+                                    <Clock size={16} />
+                                    <span>Sincronizar</span>
+                                </button>
+                            </div>
+                        )}
+
                     </div>
                 )}
             </div>
