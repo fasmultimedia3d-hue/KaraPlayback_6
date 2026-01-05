@@ -59,15 +59,12 @@ export const ProjectService = {
             const audioBlob = await zip.file(audioFilename).async("blob");
             const typedBlob = new Blob([audioBlob], { type: mimeType });
 
-            console.log("Unpacked:", audioFilename, typedBlob.type);
-
             // Read PDF (Optional)
             let pdfBlob = null;
             const pdfFilename = Object.keys(zip.files).find(name => name.endsWith(".pdf")); // usually score.pdf
             if (pdfFilename) {
                 const pdfData = await zip.file(pdfFilename).async("blob");
                 pdfBlob = new Blob([pdfData], { type: 'application/pdf' });
-                console.log("Unpacked PDF:", pdfFilename);
             }
 
             return { metadata, audioBlob: typedBlob, pdfBlob };

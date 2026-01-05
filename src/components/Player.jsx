@@ -100,7 +100,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // Sync state when project changes (for background playback navigation)
     useEffect(() => {
         if (initialProject) {
-            console.log("Project changed, updating Player state...");
             setTitle(initialProject.title || "New Project");
             setLyrics(initialProject.lyrics || []);
             setPlaybackRate(initialProject.audioSettings?.speed || 1.0);
@@ -120,7 +119,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             // Otherwise, let the mount effect handle the initial load
             const blob = initialProject.audioBlob || initialProject.audioBlobRef;
             if (blob && audioEngine.wavesurfer) {
-                console.log("Loading new audio blob into existing engine...");
                 const url = URL.createObjectURL(blob);
                 audioEngine.load(url);
             }
@@ -297,7 +295,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // --- Memoized Components ---
     const Header = (
         <div
-            className="portrait:pt-safe landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top"
+            className="portrait:pt-[max(2rem,env(safe-area-inset-top))] landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top"
         >
             <div className={`flex items-center gap-4 landscape:gap-2 px-1.5 pt-0 pb-0.5 landscape:px-1 landscape:py-0 ${isEditing ? 'landscape:py-0' : ''}`}>
                 <button onClick={onBack} className="p-2 landscape:p-1 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
@@ -356,7 +354,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         </div>
     );
 
-    console.log("Player Rendering. InitialProject:", initialProject);
+
 
     const Footer = useMemo(() => (
         <div className="bg-slate-900/80 backdrop-blur-lg border-t border-white/10 p-2 pb-10 landscape:p-1 landscape:pb-2 rounded-t-3xl landscape:rounded-t-xl shadow-2xl relative z-20">
@@ -473,7 +471,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     ), [isVisible, currentTime, duration, isPlaying, playbackRate, pitchShift, togglePlay, adjustSpeed, adjustPitch, formatTime, handleSeek, viewMode, pdfBlob]);
 
     useEffect(() => {
-        console.log("Player Mounted. Initializing Headless Audio Engine...");
         try {
             // Initialize Audio Engine without a container (headless)
             audioEngine.init(null);
@@ -500,7 +497,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         }
 
         return () => {
-            console.log("Player Unmounting. Destroying Audio Engine");
             audioEngine.destroy();
         };
     }, []);
@@ -616,11 +612,9 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                     if (!lyrics.length) return alert("No lyrics to export");
                                     if (!audioBlob) return alert("No audio loaded to export");
                                     if (!lyrics.length) {
-                                        // alert("No lyrics to export"); // Removed debug alert
                                         return;
                                     }
                                     if (!audioBlob) {
-                                        // alert("No audio loaded to export"); // Removed debug alert
                                         return;
                                     }
 

@@ -37,7 +37,7 @@ const Settings = ({ onBack }) => {
     };
 
     return (
-        <div className="flex flex-col h-screen bg-slate-950 text-slate-100 p-6 pt-safe animate-fade-in">
+        <div className="flex flex-col h-screen bg-slate-950 text-slate-100 p-6 portrait:pt-[max(2rem,env(safe-area-inset-top))] animate-fade-in">
             {/* Header */}
             <div className="flex items-center gap-4 mb-2">
                 <button
@@ -117,6 +117,10 @@ const Settings = ({ onBack }) => {
                         <div className="flex justify-between">
                             <span>Engine</span>
                             <span className="text-white">WaveSurfer.js + React</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Creado por</span>
+                            <span className="text-white font-medium">Fredy Suarez</span>
                         </div>
 
                     </div>

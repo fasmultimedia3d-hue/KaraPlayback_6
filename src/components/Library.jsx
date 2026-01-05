@@ -54,7 +54,7 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
     const [isImporting, setIsImporting] = useState(false);
 
     const handleImportPackage = async () => {
-        console.log('Import button clicked');
+
 
         // Define variables at the very top scope of the function to avoid ReferenceError in finally block
         let tempZipPath = null;
@@ -71,7 +71,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
 
             if (!result || !result.files || result.files.length === 0) return;
             const file = result.files[0];
-            console.log('File selected:', file.name, 'Size:', file.size, 'Path:', file.path, 'WebPath:', file.webPath);
 
             setIsImporting(true);
 
@@ -80,7 +79,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                 // If it's a real file path (not content://), we copy it to cache for stability
                 if (file.path && !file.path.startsWith('content://')) {
                     importStrategy = 'copy-to-cache';
-                    console.log('Strategy: Copy to Cache');
                     const destName = `import_temp_${Date.now()}.zip`;
 
                     await Filesystem.copy({
@@ -101,7 +99,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                     blob = await response.blob();
                 } else {
                     importStrategy = 'direct-webpath';
-                    console.log('Strategy: Direct WebPath (content URI detected or no path)');
                     // If webPath is undefined (common on some androids), try converting path
                     const fetchUrl = file.webPath || (file.path ? Capacitor.convertFileSrc(file.path) : null);
 
@@ -126,7 +123,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                 const headerHex = Array.from(new Uint8Array(headerSlice)).map(b => b.toString(16).padStart(2, '0')).join(' ');
 
                 if (headerHex === '55 45 73 44') {
-                    console.log('Detected Base64 encoded ZIP blob (UEsD header). Decoding...');
                     const base64Text = await new Promise((resolve) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve(reader.result);
@@ -143,7 +139,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     blob = new Blob([bytes], { type: 'application/zip' });
-                    console.log('Base64 decoded. New Blob size:', blob.size);
                 }
             } catch (b64Error) {
                 console.warn('Base64 check failed, proceeding with original blob:', b64Error);
@@ -168,7 +163,6 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                     });
 
                     if (text && text.trim().startsWith('{')) {
-                        console.log('Detected Legacy JSON');
                         const json = JSON.parse(text);
                         metadata = json;
                         audioBlob = null;
@@ -355,34 +349,41 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                 />
             )}
 
-            {/* Header - Fixed height/shrink-0 */}
-            <div className="flex justify-between items-center px-4 pt-0 pb-3 landscape:pt-0 landscape:pb-1.5 shrink-0">
-                <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
+            {/* Header - Refactored for 2-Row Layout in Portrait */}
+            <div className="flex flex-col landscape:flex-row justify-between items-start landscape:items-center px-4 pt-4 pb-3 landscape:pt-0 landscape:pb-1.5 shrink-0 gap-0.5 landscape:gap-0">
+                <div className="flex items-center gap-3 w-full landscape:w-auto landscape:flex-1 min-w-0 mr-0 landscape:mr-4">
                     {currentFolderId && (
                         <button onClick={() => setCurrentFolderId(null)} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
                             <ArrowLeft size={24} />
                         </button>
                     )}
-                    <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate leading-normal py-1 flex-1 min-w-0">
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate leading-normal py-1 flex-1 min-w-0">
                         {currentFolderName}
                     </h1>
                 </div>
 
-                <div className="flex gap-2 sm:gap-4 items-center shrink-0">
-                    {hasActiveProject && (
-                        <button onClick={onReturnToPlayer} className="flex items-center gap-2 px-3 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-fuchsia-600/20 active:scale-95 ml-2 sm:ml-4 shrink-0">
-                            <Play size={14} fill="currentColor" />
-                            <span className="hidden sm:inline">En Reproducción</span>
+                <div className="flex items-center shrink-0 w-full landscape:w-auto justify-center landscape:justify-end gap-0 landscape:gap-4">
+                    {/* Left Group - En Reproducción, Settings, Import */}
+                    <div className="flex items-center justify-end gap-2 sm:gap-4 flex-1 landscape:flex-none pr-3 landscape:pr-0">
+                        {hasActiveProject && (
+                            <button onClick={onReturnToPlayer} className="flex items-center gap-2 px-3 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-fuchsia-600/20 active:scale-95 shrink-0">
+                                <Play size={14} fill="currentColor" />
+                                <span className="hidden sm:inline">En Reproducción</span>
+                            </button>
+                        )}
+                        <button onClick={onOpenSettings} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
+                            <Settings size={24} />
                         </button>
-                    )}
-                    <button onClick={onOpenSettings} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white ml-2 sm:ml-4 shrink-0">
-                        <Settings size={24} />
-                    </button>
-                    <button onClick={handleImportPackage} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white cursor-pointer shrink-0" title="Importar Proyecto">
-                        <Upload size={24} />
-                    </button>
-                    <div className="h-6 w-px bg-slate-800 mx-2 sm:mx-4 shrink-0"></div>
-                    <div className="flex items-center gap-4 sm:gap-5">
+                        <button onClick={handleImportPackage} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white cursor-pointer shrink-0" title="Importar Proyecto">
+                            <Upload size={24} />
+                        </button>
+                    </div>
+
+                    {/* Divider - Centered because neighbors are flex-1 */}
+                    <div className="h-6 w-px bg-slate-800 shrink-0"></div>
+
+                    {/* Right Group - View, Folder, Project */}
+                    <div className="flex items-center justify-start gap-4 sm:gap-5 flex-1 landscape:flex-none pl-3 landscape:pl-0">
                         <button onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white shrink-0">
                             {viewMode === 'grid' ? <List size={24} /> : <LayoutGrid size={24} />}
                         </button>

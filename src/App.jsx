@@ -20,7 +20,6 @@ function App() {
     try {
       // 1. If it's a "New Project" (p is null), use a template and open player
       if (!p) {
-        console.log("Creating new project. Opening player...");
         setCurrentProject({
           id: null, // Will be generated on save
           title: "New Project",
@@ -35,7 +34,6 @@ function App() {
 
       // 2. Optimization: If same project already active, just switch view
       if (currentProject && currentProject.id === p.id) {
-        console.log("Re-selecting active project. Skipping reload.");
         setView('player');
         return;
       }
@@ -43,7 +41,6 @@ function App() {
       // 3. Load full project if needed
       let fullProject = p;
       if (p.type !== 'folder' && !p.audioBlob) {
-        console.log("Fetching full project content...", p.id);
         fullProject = await StorageService.getProject(p.id);
       }
 
@@ -56,8 +53,7 @@ function App() {
     }
   };
 
-  // Debug: Log rendering state
-  console.log("App Render. View:", view, "HasProject:", !!currentProject);
+
 
   useEffect(() => {
     const handleError = (message, source, lineno, colno, error) => {
@@ -90,7 +86,6 @@ function App() {
   }, []);
 
   const handleBackToLibrary = () => {
-    console.log("Back to Library clicked. Switching view...");
     setView('library');
     setLibraryRefreshKey(prev => prev + 1);
     setNavigationFolderId(null); // Force Library to Root
