@@ -1,26 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Music, FileText, Settings, Upload, ArrowLeft, Save, Folder, Edit3, Check, MousePointer2, Lock, ChevronLeft, ChevronRight, X, Clock } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Music, FileText, Settings, Upload, ArrowLeft, Save, Folder, Edit3, Check, MousePointer2, Lock, ChevronLeft, ChevronRight, X, Clock, Tv } from 'lucide-react';
 import { audioEngine } from '../services/AudioEngine';
 import LyricsDisplay from './LyricsDisplay';
 import PDFViewer from './PDFViewer';
+import ImageViewer from './ImageViewer';
+import { blobToBase64 } from '../utils/base64';
 import { LyricsParser } from '../services/LyricsParser';
 import { ProjectService } from '../services/ProjectService';
 import { StorageService } from '../services/StorageService';
 import { Share } from '@capacitor/share';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
 
-// Helper to convert Blob to Base64
-const blobToBase64 = (blob) => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = reject;
-        reader.onload = () => {
-            resolve(reader.result.split(',')[1]);
-        };
-        reader.readAsDataURL(blob);
-    });
-};
+
 
 const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) => {
 
@@ -40,10 +32,13 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // State for Audio Blob and PDF Blob
     const [audioBlob, setAudioBlob] = useState(initialProject?.audioBlobRef || null);
     const [pdfBlob, setPdfBlob] = useState(initialProject?.pdfBlob || null);
+    const [visualType, setVisualType] = useState(initialProject?.visualType || (initialProject?.pdfBlob?.type?.startsWith('image/') ? 'image' : 'pdf'));
     const [viewMode, setViewMode] = useState('lyrics'); // 'lyrics' | 'pdf'
     const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
     const [pdfPageTimestamps, setPdfPageTimestamps] = useState(initialProject?.pdfPageTimestamps || {});
+    const [isImporting, setIsImporting] = useState(false);
+    const [isPresentationMode, setIsPresentationMode] = useState(false);
 
     // Memoized PDF URL to prevent flickering during re-renders
     const pdfUrl = useMemo(() => {
@@ -61,8 +56,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // Sync state when project changes (for background playback navigation)
     // Visibility Ref for Event Listeners
     const shouldUpdateVisualsRef = useRef(isVisible);
-
-
 
     useEffect(() => {
         if (isVisible) {
@@ -212,13 +205,17 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
     // PDF Ref for imperative scroll
     const pdfViewerRef = useRef(null);
+    const lastSyncedPointRef = useRef(null);
 
     const handleSyncPage = useCallback(() => {
         if (!isEditing || viewMode !== 'pdf' || !pdfViewerRef.current) return;
 
         // Get precise scroll info { page, offset }
         const scrollInfo = pdfViewerRef.current.getCurrentScroll();
-        if (!scrollInfo) return;
+        if (!scrollInfo) {
+            alert("No se pudo obtener la posición del PDF");
+            return;
+        }
 
         const time = audioEngine.getCurrentTime();
 
@@ -236,6 +233,8 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             // Sort by time
             return newPoints.sort((a, b) => a.time - b.time);
         });
+
+        alert(`✓ Sincronizado\nPágina: ${scrollInfo.page}\nTiempo: ${Math.floor(time)}s`);
     }, [isEditing, viewMode]);
 
     // Auto-paging logic for PDF (Updated for Sub-Page Sync)
@@ -250,12 +249,6 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         if (points.length === 0) return;
 
         // Find the LATEST point passed
-        // Since we want the one with time <= currentTime with largest time
-        // If sorting descending (b.time - a.time):
-        // const currentPoint = points.find(p => p.time <= currentTime);
-
-        // If sorting ascending (default in handleSync):
-        // We need to reverse or findLast
         const sortedAsc = [...points].sort((a, b) => a.time - b.time);
         let targetPoint = null;
         for (const p of sortedAsc) {
@@ -266,8 +259,16 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             }
         }
 
-        if (targetPoint && pdfViewerRef.current) {
-            pdfViewerRef.current.scrollTo({ page: targetPoint.page, offset: targetPoint.offset });
+        // Only scroll if target point has changed
+        if (targetPoint) {
+            const last = lastSyncedPointRef.current;
+            if (!last || last.page !== targetPoint.page || Math.abs(last.offset - targetPoint.offset) > 0.01) {
+                console.log('Scrolling to new target:', targetPoint);
+                lastSyncedPointRef.current = targetPoint;
+                if (pdfViewerRef.current) {
+                    pdfViewerRef.current.scrollTo({ page: targetPoint.page, offset: targetPoint.offset });
+                }
+            }
         }
     }, [currentTime, viewMode, isPlaying, pdfPageTimestamps]);
 
@@ -276,9 +277,105 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         setLyrics(prev => prev.filter((_, i) => i !== index));
     }, []);
 
+    // FilePicker-based file selection for cloud storage support
+    const pickAudioFile = useCallback(async () => {
+        try {
+            const result = await FilePicker.pickFiles({
+                types: ['audio/*'],
+                multiple: false,
+                readData: false // Optimization: Don't read data into string to avoid UI freeze
+            });
+
+            if (result.files && result.files.length > 0) {
+                const pickedFile = result.files[0];
+
+                // Show loading AFTER file is selected
+                setIsImporting(true);
+
+                // Allow UI to render loading state
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // strategy: fetch from webPath (content://) or converted path
+                const fetchUrl = pickedFile.webPath || (pickedFile.path ? Capacitor.convertFileSrc(pickedFile.path) : null);
+
+                if (!fetchUrl) throw new Error("Could not determine file path");
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error("Failed to read file");
+
+                const blob = await response.blob();
+
+                setAudioBlob(blob);
+                const url = URL.createObjectURL(blob);
+                audioEngine.load(url);
+                setIsPlaying(false);
+                alert('Audio cargado desde Drive: ' + pickedFile.name);
+            }
+        } catch (error) {
+            console.error('Error picking audio file:', error);
+            if (error.message !== 'pickFiles canceled.') {
+                alert('Error al seleccionar archivo de audio: ' + error.message);
+            }
+        } finally {
+            setIsImporting(false);
+        }
+    }, []);
+
+    const pickPackageFile = useCallback(async () => {
+        try {
+            // Give React time to render the loading overlay before opening native dialog
+            await new Promise(resolve => requestAnimationFrame(resolve));
+
+            const result = await FilePicker.pickFiles({
+                types: ['*/*'], // Allow all file types
+                multiple: false,
+                readData: false // Optimization: Don't read data into string to avoid UI freeze
+            });
+
+            if (result.files && result.files.length > 0) {
+                const pickedFile = result.files[0];
+                const fileName = pickedFile.name;
+
+                // Show loading AFTER file is selected
+                setIsImporting(true);
+
+                // Allow UI to render loading state
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // strategy: fetch from webPath (content://) or converted path
+                const fetchUrl = pickedFile.webPath || (pickedFile.path ? Capacitor.convertFileSrc(pickedFile.path) : null);
+
+                if (!fetchUrl) throw new Error("Could not determine file path");
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error("Failed to read file");
+
+                const blob = await response.blob();
+
+                // Create synthetic event for handleImportPackage
+                const syntheticEvent = {
+                    target: {
+                        files: [Object.assign(blob, { name: fileName })]
+                    }
+                };
+
+                await handleImportPackage(syntheticEvent);
+            }
+        } catch (error) {
+            console.error('Error picking file:', error);
+            if (error.message !== 'pickFiles canceled.') {
+                alert('Error al seleccionar archivo: ' + error.message);
+            }
+            setIsImporting(false);
+        }
+    }, []);
+
     const handleImportPackage = useCallback(async (event) => {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file) {
+            setIsImporting(false); // If no file, stop loading immediately
+            return;
+        }
 
         try {
             if (file.name.endsWith('.karaoke') || file.name.endsWith('.zip')) {
@@ -289,15 +386,23 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                 setPlaybackRate(metadata.audioSettings?.speed || 1.0);
                 audioEngine.setSpeed(metadata.audioSettings?.speed || 1.0);
                 setAudioBlob(importedAudio);
-                setPdfBlob(metadata.pdfBlob || null); // Load PDF from metadata if exists (though usually it's a separate file in zip, but metadata might have it)
+                setPdfBlob(metadata.pdfBlob || null);
+                setVisualType(metadata.visualType || 'pdf');
                 setPdfPageTimestamps(metadata.pdfPageTimestamps || {});
                 audioEngine.load(URL.createObjectURL(importedAudio));
                 setIsPlaying(false);
+            } else if (file.type.startsWith('image/')) {
+                setPdfBlob(file);
+                setVisualType('image');
+                setViewMode('pdf');
+                setLyrics([]);
+                setIsSynced(false);
             } else if (file.name.endsWith('.pdf')) {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdfLyrics = await LyricsParser.parsePDF(arrayBuffer);
                 setLyrics(pdfLyrics);
-                setPdfBlob(file); // Save the original file as blob
+                setPdfBlob(file);
+                setVisualType('pdf');
                 setViewMode('pdf');
                 setIsSynced(false);
             } else {
@@ -313,6 +418,8 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             }
         } catch (e) {
             alert("Error importing: " + e.message);
+        } finally {
+            setIsImporting(false); // Always hide loading when done
         }
     }, []);
 
@@ -328,12 +435,16 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }, []);
 
+    const togglePresentation = useCallback(() => {
+        setIsPresentationMode(!isPresentationMode);
+    }, [isPresentationMode]);
+
     // --- Memoized Components ---
-    const Header = (
+    const Header = !isPresentationMode && (
         <div
             className="portrait:pt-[max(2rem,env(safe-area-inset-top))] landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top"
         >
-            <div className={`flex items-center gap-4 landscape:gap-2 px-1.5 pt-0 pb-0.5 landscape:px-1 landscape:py-0 ${isEditing ? 'landscape:py-0' : ''}`}>
+            <div className={`flex items - center gap - 4 landscape: gap - 2 px - 1.5 pt - 0 pb - 0.5 landscape: px - 1 landscape: py - 0 ${isEditing ? 'landscape:py-0' : ''} `}>
                 <button onClick={onBack} className="p-2 landscape:p-1 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
                     <ArrowLeft size={20} className="landscape:w-4 landscape:h-4" />
                 </button>
@@ -341,37 +452,34 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     {title}
                 </h1>
             </div>
-            <div
-                className={`flex gap-3 sm:gap-4 items-center px-1.5 pt-0 pb-0.5 pr-2 landscape:px-1 landscape:py-0 landscape:pr-20 ${isEditing ? 'landscape:py-0' : ''}`}
-                style={{ marginRight: isEditing ? '40px' : '20px' }}
-            >
+            <div className={`flex items-center px-1 ${isEditing ? 'gap-3 pr-2' : 'gap-3 pr-5'}`}> {/* Same gap spacing, different padding */}
+                {!isEditing && (
+                    <button onClick={togglePresentation} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn text-slate-400 hover:text-white" title="TV Mode (Presentation)">
+                        <Tv size={18} className="landscape:w-4 landscape:h-4" />
+                    </button>
+                )}
+
                 {isEditing && (
                     <>
-                        <label className="cursor-pointer p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Load Audio">
+                        <button onClick={pickAudioFile} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Load Audio">
                             <Music size={18} className="landscape:w-4 landscape:h-4" />
-                            <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-                        </label>
-                        <label className="cursor-pointer p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Import Package or Lyrics">
+                        </button>
+                        <button onClick={pickPackageFile} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Import Package or Lyrics">
                             <FileText size={18} className="landscape:w-4 landscape:h-4" />
-                            <input type="file" accept=".json,.lrc,.txt,.pdf,.karaoke,.zip" onChange={handleImportPackage} className="hidden" />
-                        </label>
+                        </button>
                     </>
                 )}
                 <button
                     onClick={() => {
-                        const nextEdit = !isEditing;
-                        setIsEditing(nextEdit);
-                        if (nextEdit && viewMode === 'pdf') {
-                            setViewMode('lyrics');
-                        }
+                        setIsEditing(!isEditing);
                     }}
-                    className={`p-1.5 landscape:p-1.5 rounded-full transition icon-btn ${isEditing ? 'bg-amber-500/20 text-amber-400' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}
+                    className={`p - 1.5 landscape: p - 1.5 rounded - full transition icon - btn ${isEditing ? 'bg-amber-500/20 text-amber-400' : 'hover:bg-slate-800 text-slate-400 hover:text-white'} `}
                 >
                     {isEditing ? <Check size={18} className="landscape:w-4 landscape:h-4" /> : <Edit3 size={18} className="landscape:w-4 landscape:h-4" />}
                 </button>
                 {isEditing && (
                     <>
-                        <button onClick={() => setAutoScroll(!autoScroll)} className={`p-1.5 landscape:p-1.5 rounded-full transition icon-btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`} title="Auto-scroll">
+                        <button onClick={() => setAutoScroll(!autoScroll)} className={`p - 1.5 landscape: p - 1.5 rounded - full transition icon - btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'} `} title="Auto-scroll">
                             {autoScroll ? <MousePointer2 size={18} className="landscape:w-4 landscape:h-4" /> : <Lock size={18} className="landscape:w-4 landscape:h-4" />}
                         </button>
                         <button onClick={() => setShowSaveModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Save to Library">
@@ -405,7 +513,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     onChange={handleSeek}
                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-500 hover:accent-violet-400 transition-all"
                     style={{
-                        background: `linear-gradient(to right, #8b5cf6 ${(currentTime / (duration || 1)) * 100}%, #1e293b 0)`
+                        background: `linear - gradient(to right, #8b5cf6 ${(currentTime / (duration || 1)) * 100}%, #1e293b 0)`
                     }}
                 />
             </div>
@@ -421,11 +529,12 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     <div className="flex justify-center landscape:hidden mt-[-6px] mb-4">
                         <button
                             onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
-                            className={`group flex items-center gap-2 px-5 py-1.5 rounded-full transition-all duration-300 text-[9px] font-black uppercase tracking-[0.2em] border hover:scale-105 active:scale-95
+                            className={`group flex items-center gap - 2 px - 5 py - 1.5 rounded - full transition - all duration - 300 text - [9px] font - black uppercase tracking - [0.2em] border hover: scale - 105 active: scale - 95
                                 ${viewMode === 'pdf'
                                     ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
-                                    : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500 shadow-black/60'}
-                            `}
+                                    : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500 shadow-black/60'
+                                }
+    `}
                         >
                             {viewMode === 'pdf' ? <FileText size={14} className="animate-bounce" /> : <FileText size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />}
                             {viewMode === 'pdf' ? 'VER LETRA' : 'VER PDF ORIGINAL'}
@@ -468,11 +577,12 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         {pdfBlob && (
                             <button
                                 onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
-                                className={`landscape:flex hidden group items-center gap-2 px-3 py-1 rounded-full transition-all duration-300 text-[8px] font-black uppercase tracking-[0.15em] border hover:scale-105 active:scale-95
+                                className={`landscape:flex hidden group items - center gap - 2 px - 3 py - 1 rounded - full transition - all duration - 300 text - [8px] font - black uppercase tracking - [0.15em] border hover: scale - 105 active: scale - 95
                                     ${viewMode === 'pdf'
                                         ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
-                                        : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500'}
-                                `}
+                                        : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500'
+                                    }
+    `}
                             >
                                 <FileText size={12} className={viewMode === 'pdf' ? 'animate-bounce' : 'opacity-50 group-hover:opacity-100 transition-opacity'} />
                                 {viewMode === 'pdf' ? 'LETRA' : 'PDF'}
@@ -570,7 +680,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                 <div className="max-h-[150px] overflow-y-auto bg-slate-800 rounded-lg border border-slate-700">
                                     <button
                                         onClick={() => setSaveTargetFolderId(null)}
-                                        className={`w-full text-left p-2 px-3 hover:bg-slate-700 flex items-center gap-2 ${saveTargetFolderId === null ? 'text-violet-400 bg-slate-700/50' : 'text-slate-300'}`}
+                                        className={`w - full text - left p - 2 px - 3 hover: bg - slate - 700 flex items - center gap - 2 ${saveTargetFolderId === null ? 'text-violet-400 bg-slate-700/50' : 'text-slate-300'} `}
                                     >
                                         <Folder size={16} />
                                         <span>Library (Root)</span>
@@ -579,7 +689,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                         <button
                                             key={f.id}
                                             onClick={() => setSaveTargetFolderId(f.id)}
-                                            className={`w-full text-left p-2 px-3 hover:bg-slate-700 flex items-center gap-2 ${saveTargetFolderId === f.id ? 'text-violet-400 bg-slate-700/50' : 'text-slate-300'}`}
+                                            className={`w - full text - left p - 2 px - 3 hover: bg - slate - 700 flex items - center gap - 2 ${saveTargetFolderId === f.id ? 'text-violet-400 bg-slate-700/50' : 'text-slate-300'} `}
                                         >
                                             <Folder size={16} />
                                             <span>{f.title}</span>
@@ -608,6 +718,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                             audioSettings: { speed: playbackRate, pitch: pitchShift },
                                             audioBlob: audioBlob,
                                             pdfBlob: pdfBlob,
+                                            visualType: visualType || 'pdf',
                                             pdfPageTimestamps: pdfPageTimestamps,
                                             timestamp: new Date().toISOString(),
                                             parentId: saveTargetFolderId // Use selected folder
@@ -648,14 +759,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         <div className="space-y-4">
                             <button
                                 onClick={async () => {
-                                    if (!lyrics.length) return alert("No lyrics to export");
-                                    if (!audioBlob) return alert("No audio loaded to export");
-                                    if (!lyrics.length) {
-                                        return;
-                                    }
-                                    if (!audioBlob) {
-                                        return;
-                                    }
+                                    if (!lyrics.length || !audioBlob) return;
 
                                     const metadata = {
                                         title,
@@ -666,28 +770,68 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                     try {
                                         setIsExporting(true);
                                         const blob = await ProjectService.packProject(metadata, audioBlob, pdfBlob);
-                                        // setIsExporting(false); // MOVED TO FINALLY to keep overlay during save
-
                                         const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.karaoke`;
+                                        const base64 = await blobToBase64(blob);
 
                                         if (Capacitor.isNativePlatform()) {
-                                            try {
-                                                const base64 = await blobToBase64(blob);
+                                            // Save to cache first for sharing
+                                            const cacheResult = await Filesystem.writeFile({
+                                                path: filename,
+                                                data: base64,
+                                                directory: Directory.Cache,
+                                                encoding: 'base64'
+                                            });
 
-                                                // Save directly to Downloads folder
-                                                const saveResult = await Filesystem.writeFile({
-                                                    path: `Download/${filename}`,
-                                                    data: base64,
-                                                    directory: Directory.ExternalStorage,
-                                                    encoding: 'base64'
-                                                });
+                                            await Share.share({
+                                                title: 'Exportar Proyecto KaraPlayback',
+                                                text: `Proyecto: ${title}`,
+                                                url: cacheResult.uri,
+                                                dialogTitle: 'Guardar en Drive o carpeta'
+                                            });
+                                            setShowExportModal(false);
+                                        }
+                                    } catch (err) {
+                                        console.error("Native export failed", err);
+                                        alert("Error al exportar: " + err.message);
+                                    } finally {
+                                        setIsExporting(false);
+                                    }
+                                }}
+                                className="w-full p-4 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-4 transition group border border-slate-700 hover:border-violet-500/50"
+                            >
+                                <div className="p-3 bg-violet-500/20 rounded-full text-violet-400 group-hover:scale-110 transition">
+                                    <Upload size={24} />
+                                </div>
+                                <div className="text-left">
+                                    <div className="font-bold text-white">Compartir / Nube</div>
+                                    <div className="text-xs text-slate-400">Drive, WhatsApp, Email (.karaoke)</div>
+                                </div>
+                            </button>
 
-                                                alert(`¡Proyecto exportado exitosamente!\\n\\nArchivo: ${filename}\\nUbicación: Descargas`);
-                                                setShowExportModal(false);
-                                            } catch (err) {
-                                                console.error("Native export failed", err);
-                                                alert("Error al exportar: " + err.message);
-                                            }
+                            <button
+                                onClick={async () => {
+                                    if (!lyrics.length || !audioBlob) return;
+
+                                    const metadata = {
+                                        title,
+                                        lyrics,
+                                        audioSettings: { speed: playbackRate, pitch: pitchShift },
+                                    };
+
+                                    try {
+                                        setIsExporting(true);
+                                        const blob = await ProjectService.packProject(metadata, audioBlob, pdfBlob);
+                                        const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.karaoke`;
+                                        const base64 = await blobToBase64(blob);
+
+                                        if (Capacitor.isNativePlatform()) {
+                                            await Filesystem.writeFile({
+                                                path: filename,
+                                                data: base64,
+                                                directory: Directory.Documents
+                                            });
+                                            alert(`Guardado exitosamente en:\nDocumentos / ${filename}`);
+                                            setShowExportModal(false);
                                         } else if (window.showSaveFilePicker) {
                                             const handle = await window.showSaveFilePicker({
                                                 suggestedName: filename,
@@ -699,7 +843,9 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                             const writable = await handle.createWritable();
                                             await writable.write(blob);
                                             await writable.close();
+                                            setShowExportModal(false);
                                         } else {
+                                            // Fallback for browsers without showSaveFilePicker
                                             const url = URL.createObjectURL(blob);
                                             const a = document.createElement('a');
                                             a.href = url;
@@ -707,25 +853,27 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                             a.click();
                                             URL.revokeObjectURL(url);
                                             alert("Tu navegador no soporta elegir la carpeta de destino. El archivo se ha guardado en tu carpeta de Descargas.");
+                                            setShowExportModal(false);
                                         }
-                                        setShowExportModal(false);
-                                    } catch (e) {
-                                        if (e.name !== 'AbortError') {
-                                            console.error(e);
-                                            alert("Export failed: " + e.message);
+                                    } catch (err) {
+                                        console.error("Save to device failed", err);
+                                        if (err.message.includes('EACCES') || err.message.includes('permission')) {
+                                            alert("Permiso denegado. Intenta usar 'Compartir' y selecciona tu gestor de archivos.");
+                                        } else {
+                                            alert("Error al guardar: " + err.message);
                                         }
                                     } finally {
                                         setIsExporting(false);
                                     }
                                 }}
-                                className="w-full p-4 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-4 transition group border border-slate-700 hover:border-violet-500/50"
+                                className="w-full p-4 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center gap-4 transition group border border-slate-700 hover:border-blue-500/50"
                             >
-                                <div className="p-3 bg-violet-500/20 rounded-full text-violet-400 group-hover:scale-110 transition">
-                                    <Upload size={24} />
+                                <div className="p-3 bg-blue-500/20 rounded-full text-blue-400 group-hover:scale-110 transition">
+                                    <Folder size={24} />
                                 </div>
                                 <div className="text-left">
-                                    <div className="font-bold text-white">KaraPlayback Package</div>
-                                    <div className="text-xs text-slate-400">Audio + Sync Data (.karaoke)</div>
+                                    <div className="font-bold text-white">Guardar en Dispositivo</div>
+                                    <div className="text-xs text-slate-400">Carpeta Documentos</div>
                                 </div>
                             </button>
 
@@ -750,7 +898,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                                         directory: Directory.Documents,
                                                         recursive: true
                                                     });
-                                                    savePath = `KaraPlayback/${filename}`;
+                                                    savePath = `KaraPlayback / ${filename} `;
                                                 } catch (e) { }
 
                                                 await Filesystem.writeFile({
@@ -760,7 +908,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                                                     encoding: 'base64'
                                                 });
 
-                                                alert(`¡Letra guardada!\nUbicación: Documentos/${savePath}`);
+                                                alert(`¡Letra guardada!\nUbicación: Documentos / ${savePath} `);
 
                                                 const cacheResult = await Filesystem.writeFile({
                                                     path: filename,
@@ -846,20 +994,33 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                 {pdfBlob && (
                     <div className={`absolute inset-0 bg-slate-900 transition-all duration-500 overflow-hidden flex flex-col ${viewMode === 'pdf' ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-105 z-0 pointer-events-none'}`}>
                         <div className="flex-1 overflow-hidden">
-                            <PDFViewer
-                                ref={pdfViewerRef}
-                                file={pdfBlob}
-                                onPageLoad={setPdfTotalPages}
-                                onPageVisible={setPdfCurrentPage}
-                            />
+                            {visualType === 'image' ? (
+                                <ImageViewer
+                                    ref={pdfViewerRef}
+                                    file={pdfBlob}
+                                    onImageLoad={() => setPdfTotalPages(1)}
+                                />
+                            ) : (
+                                <PDFViewer
+                                    ref={pdfViewerRef}
+                                    file={pdfBlob}
+                                    onPageLoad={setPdfTotalPages}
+                                    onPageVisible={setPdfCurrentPage}
+                                />
+                            )}
                         </div>
 
-                        {/* PDF Sync Overlay - Visible ONLY in Edit Mode */}
+                        {/* Visual Sync Overlay - Visible ONLY in Edit Mode */}
                         {isEditing && (
                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-950/80 backdrop-blur-md px-6 py-3 rounded-full border border-fuchsia-500/30 shadow-2xl z-20 transition-all duration-300 animate-fade-in">
                                 <div className="flex flex-col items-center min-w-[60px] border-r border-white/10 pr-4 mr-1">
-                                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Página</span>
-                                    <span className="text-xl font-mono font-black text-white">{pdfCurrentPage} <span className="text-sm text-slate-500 font-normal">/ {pdfTotalPages || '?'}</span></span>
+                                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+                                        {visualType === 'image' ? 'VISUAL' : 'PÁGINA'}
+                                    </span>
+                                    <span className="text-xl font-mono font-black text-white">
+                                        {visualType === 'image' ? '1' : pdfCurrentPage}
+                                        <span className="text-sm text-slate-500 font-normal">/ {pdfTotalPages || '?'}</span>
+                                    </span>
                                 </div>
 
                                 <button
@@ -877,7 +1038,30 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
             </div>
 
             {/* Controls & Waveform */}
-            {Footer}
+            {!isPresentationMode && Footer}
+            {/* Floating Controls - Presentation Mode */}
+            {isPresentationMode && (
+                <>
+                    {/* Play/Pause Button - Bottom Left */}
+                    <button
+                        onClick={togglePlay}
+                        className="fixed bottom-4 left-4 z-[9999] p-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md rounded-full transition shadow-2xl border-2 border-violet-500/50"
+                        title={isPlaying ? "Pausar" : "Reproducir"}
+                    >
+                        {isPlaying ? <Pause size={16} className="text-violet-400" /> : <Play size={16} className="text-violet-400" />}
+                    </button>
+
+                    {/* TV Exit Button - Top Right */}
+                    <button
+                        onClick={() => setIsPresentationMode(false)}
+                        className="fixed top-4 right-4 z-[9999] p-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md rounded-full transition shadow-2xl border-2 border-violet-500/50"
+                        title="Salir"
+                    >
+                        <Tv size={16} className="text-violet-400" />
+                    </button>
+                </>
+            )}
+
             {/* Loading Overlay for Export */}
             {isExporting && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
@@ -885,6 +1069,17 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         <div className="animate-spin w-10 h-10 border-4 border-violet-500 border-t-transparent rounded-full mb-4"></div>
                         <p className="text-white font-medium text-lg">Exportando proyecto...</p>
                         <p className="text-slate-400 text-sm mt-1">Generando paquete .karaoke</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading Overlay for Import */}
+            {isImporting && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+                    <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl flex flex-col items-center shadow-2xl animate-fade-in">
+                        <div className="animate-spin w-10 h-10 border-4 border-fuchsia-500 border-t-transparent rounded-full mb-4"></div>
+                        <p className="text-white font-medium text-lg">Importando archivo...</p>
+                        <p className="text-slate-400 text-sm mt-1">Cargando desde Drive</p>
                     </div>
                 </div>
             )}

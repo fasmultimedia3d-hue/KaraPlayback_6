@@ -5,7 +5,10 @@ import Settings from './components/Settings';
 import ErrorBoundary from './components/ErrorBoundary';
 import { StorageService } from './services/StorageService';
 
+
 function App() {
+  // SPA Routing REMOVED - Reverting to Mirroring
+
   const [view, setView] = useState('library'); // 'library' | 'player' | 'settings'
   const [currentProject, setCurrentProject] = useState(null);
   const [targetFolderId, setTargetFolderId] = useState(null); // Which folder to save new project in
