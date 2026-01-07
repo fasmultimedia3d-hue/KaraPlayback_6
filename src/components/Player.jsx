@@ -264,7 +264,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
         if (targetPoint) {
             const last = lastSyncedPointRef.current;
             if (!last || last.page !== targetPoint.page || Math.abs(last.offset - targetPoint.offset) > 0.01) {
-                console.log('Scrolling to new target:', targetPoint);
+                // console.log('Scrolling to new target:', targetPoint);
                 lastSyncedPointRef.current = targetPoint;
                 if (pdfViewerRef.current) {
                     pdfViewerRef.current.scrollTo({ page: targetPoint.page, offset: targetPoint.offset });
@@ -443,7 +443,10 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
     // --- Memoized Components ---
     const Header = !isPresentationMode && (
         <div
-            className="portrait:pt-[max(2rem,env(safe-area-inset-top))] landscape:pt-[20px] flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top"
+            className={`flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-10 transition-all portrait:scale-y-70 portrait:origin-top w-full landscape:pt-[20px]`}
+            style={{
+                paddingTop: isEditing ? 'max(2rem, env(safe-area-inset-top))' : 'max(2.5rem, env(safe-area-inset-top))'
+            }}
         >
             <div className={`flex items - center gap - 4 landscape: gap - 2 px - 1.5 pt - 0 pb - 0.5 landscape: px - 1 landscape: py - 0 ${isEditing ? 'landscape:py-0' : ''} `}>
                 <button onClick={onBack} className="p-2 landscape:p-1 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white">
@@ -453,7 +456,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     {title}
                 </h1>
             </div>
-            <div className={`flex items-center px-1 ${isEditing ? 'gap-3 pr-2' : 'gap-3 pr-5'}`}> {/* Same gap spacing, different padding */}
+            <div className={`flex items-center px-1 ${isEditing ? 'gap-4 pr-2' : 'gap-5 pr-7'}`}> {/* Adjusted spacing for playback mode */}
                 {!isEditing && (
                     <button onClick={togglePresentation} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn text-slate-400 hover:text-white" title="TV Mode (Presentation)">
                         <Tv size={18} className="landscape:w-4 landscape:h-4" />
@@ -480,7 +483,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                 </button>
                 {isEditing && (
                     <>
-                        <button onClick={() => setAutoScroll(!autoScroll)} className={`p - 1.5 landscape: p - 1.5 rounded - full transition icon - btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'} `} title="Auto-scroll">
+                        <button onClick={() => setAutoScroll(!autoScroll)} className={`ml-2 p - 1.5 landscape: p - 1.5 rounded - full transition icon - btn ${autoScroll ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'} `} title="Auto-scroll">
                             {autoScroll ? <MousePointer2 size={18} className="landscape:w-4 landscape:h-4" /> : <Lock size={18} className="landscape:w-4 landscape:h-4" />}
                         </button>
                         <button onClick={() => setShowSaveModal(true)} className="p-1.5 landscape:p-1.5 hover:bg-slate-800 rounded-full transition icon-btn" title="Save to Library">
@@ -526,22 +529,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     <span>{formatTime(duration)}</span>
                 </div>
 
-                {pdfBlob && (
-                    <div className="flex justify-center landscape:hidden mt-[-6px] mb-4">
-                        <button
-                            onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
-                            className={`group flex items-center gap - 2 px - 5 py - 1.5 rounded - full transition - all duration - 300 text - [9px] font - black uppercase tracking - [0.2em] border hover: scale - 105 active: scale - 95
-                                ${viewMode === 'pdf'
-                                    ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
-                                    : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500 shadow-black/60'
-                                }
-    `}
-                        >
-                            {viewMode === 'pdf' ? <FileText size={14} className="animate-bounce" /> : <FileText size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />}
-                            {viewMode === 'pdf' ? 'VER LETRA' : 'VER PDF ORIGINAL'}
-                        </button>
-                    </div>
-                )}
+
 
                 {/* Playback Controls & Settings combined in Landscape */}
                 <div className="flex landscape:flex-row flex-col gap-4 landscape:gap-0 items-center w-full px-4 landscape:px-0 landscape:justify-between">
@@ -574,50 +562,58 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         </div>
                     </div>
 
-                    <div className="flex justify-center gap-8 landscape:gap-6">
-                        {pdfBlob && (
-                            <button
-                                onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
-                                className={`landscape:flex hidden group items - center gap - 2 px - 3 py - 1 rounded - full transition - all duration - 300 text - [8px] font - black uppercase tracking - [0.15em] border hover: scale - 105 active: scale - 95
-                                    ${viewMode === 'pdf'
-                                        ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
-                                        : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500'
-                                    }
-    `}
-                            >
-                                <FileText size={12} className={viewMode === 'pdf' ? 'animate-bounce' : 'opacity-50 group-hover:opacity-100 transition-opacity'} />
-                                {viewMode === 'pdf' ? 'LETRA' : 'PDF'}
-                            </button>
-                        )}
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] landscape:hidden uppercase tracking-widest text-slate-500 font-bold">Spd</span>
-                            <div className="flex items-center gap-2 bg-slate-800/80 backdrop-blur-sm rounded-full p-0.5 border border-slate-700/50">
-                                <button onClick={() => adjustSpeed(-0.05)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
-                                    <ChevronLeft size={16} className="landscape:w-3 landscape:h-3" />
-                                </button>
-                                <span className="text-xs landscape:text-[10px] font-mono w-12 landscape:w-10 text-center text-violet-400 font-black">{playbackRate.toFixed(2)}x</span>
-                                <button onClick={() => adjustSpeed(0.05)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
-                                    <ChevronRight size={16} className="landscape:w-3 landscape:h-3" />
-                                </button>
+                    <div className="relative flex items-center justify-center w-full landscape:flex-1 landscape:justify-center pb-2 landscape:pb-0">
+                        {/* Speed & Pitch Controls - Centered */}
+                        <div className="flex items-center gap-8 landscape:gap-6">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] landscape:hidden uppercase tracking-widest text-slate-500 font-bold">Spd</span>
+                                <div className="flex items-center gap-2 bg-slate-800/80 backdrop-blur-sm rounded-full p-0.5 border border-slate-700/50">
+                                    <button onClick={() => adjustSpeed(-0.05)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
+                                        <ChevronLeft size={16} className="landscape:w-3 landscape:h-3" />
+                                    </button>
+                                    <span className="text-xs landscape:text-[10px] font-mono w-12 landscape:w-10 text-center text-violet-400 font-black">{playbackRate.toFixed(2)}x</span>
+                                    <button onClick={() => adjustSpeed(0.05)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
+                                        <ChevronRight size={16} className="landscape:w-3 landscape:h-3" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] landscape:hidden uppercase tracking-widest text-slate-500 font-bold">Pit</span>
+                                <div className="flex items-center gap-2 bg-slate-800/80 backdrop-blur-sm rounded-full p-0.5 border border-slate-700/50">
+                                    <button onClick={() => adjustPitch(-1)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
+                                        <ChevronLeft size={16} className="landscape:w-3 landscape:h-3" />
+                                    </button>
+                                    <span className="text-xs landscape:text-[10px] font-mono w-8 landscape:w-6 text-center text-fuchsia-400 font-black">{pitchShift > 0 ? '+' : ''}{pitchShift}</span>
+                                    <button onClick={() => adjustPitch(1)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
+                                        <ChevronRight size={16} className="landscape:w-3 landscape:h-3" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] landscape:hidden uppercase tracking-widest text-slate-500 font-bold">Pit</span>
-                            <div className="flex items-center gap-2 bg-slate-800/80 backdrop-blur-sm rounded-full p-0.5 border border-slate-700/50">
-                                <button onClick={() => adjustPitch(-1)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
-                                    <ChevronLeft size={16} className="landscape:w-3 landscape:h-3" />
-                                </button>
-                                <span className="text-xs landscape:text-[10px] font-mono w-8 landscape:w-6 text-center text-fuchsia-400 font-black">{pitchShift > 0 ? '+' : ''}{pitchShift}</span>
-                                <button onClick={() => adjustPitch(1)} className="p-1 hover:bg-slate-700 rounded-full text-slate-400 transition">
-                                    <ChevronRight size={16} className="landscape:w-3 landscape:h-3" />
+                        {/* PDF Button - Absolute Right */}
+                        {pdfBlob && (
+                            <div className="absolute right-0 landscape:right-8">
+                                <button
+                                    onClick={() => setViewMode(viewMode === 'lyrics' ? 'pdf' : 'lyrics')}
+                                    className={`flex group items-center gap-2 px-3 py-1 rounded-full transition-all duration-300 text-[8px] font-black uppercase tracking-[0.15em] border hover:scale-105 active:scale-95
+                                    ${viewMode === 'pdf'
+                                            ? 'bg-fuchsia-800/80 text-fuchsia-100 border-fuchsia-700/50'
+                                            : 'bg-slate-800/90 backdrop-blur-md text-slate-200 border-slate-600 hover:border-slate-500'
+                                        }
+    `}
+                                >
+                                    <FileText size={12} className={viewMode === 'pdf' ? 'animate-bounce' : 'opacity-50 group-hover:opacity-100 transition-opacity'} />
+                                    {viewMode === 'pdf' ? 'LETRA' : 'PDF'}
                                 </button>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
             </div>
         </div>
+
     ), [isVisible, currentTime, duration, isPlaying, playbackRate, pitchShift, togglePlay, adjustSpeed, adjustPitch, formatTime, handleSeek, viewMode, pdfBlob]);
 
     useEffect(() => {
@@ -760,7 +756,14 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                         <div className="space-y-4">
                             <button
                                 onClick={async () => {
-                                    if (!lyrics.length || !audioBlob) return;
+                                    if (!lyrics.length) {
+                                        alert("No hay letras para exportar.");
+                                        return;
+                                    }
+                                    if (!audioBlob) {
+                                        alert("No hay audio cargado. Carga una canción primero.");
+                                        return;
+                                    }
 
                                     const metadata = {
                                         title,
@@ -811,7 +814,14 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
 
                             <button
                                 onClick={async () => {
-                                    if (!lyrics.length || !audioBlob) return;
+                                    if (!lyrics.length) {
+                                        alert("No hay letras para exportar.");
+                                        return;
+                                    }
+                                    if (!audioBlob) {
+                                        alert("No hay audio cargado. Carga una canción primero.");
+                                        return;
+                                    }
 
                                     const metadata = {
                                         title,
@@ -1055,7 +1065,7 @@ const Player = ({ initialProject, initialFolderId, onBack, isVisible = true }) =
                     {/* TV Exit Button - Top Right */}
                     <button
                         onClick={() => setIsPresentationMode(false)}
-                        className="fixed top-4 right-4 z-[9999] p-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md rounded-full transition shadow-2xl border-2 border-violet-500/50"
+                        className="fixed top-10 right-4 z-[9999] p-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md rounded-full transition shadow-2xl border-2 border-violet-500/50"
                         title="Salir"
                     >
                         <Tv size={16} className="text-violet-400" />
