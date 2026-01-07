@@ -11,6 +11,7 @@ import { StorageService } from '../services/StorageService';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 
 
 

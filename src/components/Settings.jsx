@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trash2, Github, Info, Volume2, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Trash2, Info, Volume2, ShieldAlert, CloudUpload, CloudDownload, Folder } from 'lucide-react';
 import { StorageService } from '../services/StorageService';
+import { BackupService } from '../services/BackupService';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
+import { blobToBase64 } from '../utils/base64';
 import PinModal from './PinModal';
 
 const Settings = ({ onBack }) => {
     const [stats, setStats] = useState({ projects: 0, folders: 0 });
     const [showPinModal, setShowPinModal] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [progressMsg, setProgressMsg] = useState('');
 
     useEffect(() => {
         loadStats();
@@ -26,13 +34,107 @@ const Settings = ({ onBack }) => {
         try {
             const items = await StorageService.getAllProjects();
             for (const item of items) {
-                await StorageService.deleteProject(item.id); // Reuses delete logic which handles blobs
+                await StorageService.deleteProject(item.id);
             }
             alert("All data cleared.");
             setStats({ projects: 0, folders: 0 });
             setShowPinModal(false);
         } catch (e) {
             alert("Error clearing data: " + e.message);
+        }
+    };
+
+    const handleBackup = async () => {
+        if (!confirm("Esto creará un archivo ZIP con TODOS tus proyectos. Puede tardar un poco. ¿Continuar?")) return;
+
+        setIsProcessing(true);
+        setProgressMsg("Empaquetando proyectos...");
+
+        try {
+            // 1. Generate ZIP
+            const blob = await BackupService.createFullBackup((current, total) => {
+                setProgressMsg(`Procesando: ${current} de ${total}`);
+            });
+
+            // 2. Save/Share
+            const filename = `KaraPlayback_Backup_${new Date().toISOString().slice(0, 10)}.zip`;
+
+            if (Capacitor.isNativePlatform()) {
+                setProgressMsg("Guardando archivo...");
+                const base64 = await blobToBase64(blob);
+
+                const result = await Filesystem.writeFile({
+                    path: filename,
+                    data: base64,
+                    directory: Directory.Cache
+                });
+
+                await Share.share({
+                    title: 'KaraPlayback Backup',
+                    url: result.uri,
+                    dialogTitle: 'Guardar Backup en Drive'
+                });
+            } else {
+                // Web Fallback
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+            alert("Backup completado con éxito.");
+        } catch (e) {
+            console.error(e);
+            alert("Error al crear backup: " + e.message);
+        } finally {
+            setIsProcessing(false);
+            setProgressMsg('');
+        }
+    };
+
+    const handleRestore = async () => {
+        if (!confirm("⚠️ ATENCIÓN: Al restaurar se agregarán los proyectos del backup. Si ya existen, podrían duplicarse. ¿Continuar?")) return;
+
+        try {
+            // 1. Pick File
+            const result = await FilePicker.pickFiles({
+                types: ['application/zip', 'application/octet-stream'],
+                multiple: false,
+                readData: false
+            });
+
+            if (!result.files.length) return;
+
+            setIsProcessing(true);
+            setProgressMsg("Leyendo archivo...");
+
+            const file = result.files[0];
+            // Strategy: WebPath fetch to avoid OOM
+            const fetchUrl = file.webPath || (file.path ? Capacitor.convertFileSrc(file.path) : null);
+
+            if (!fetchUrl) throw new Error("No se pudo leer el archivo (Ruta desconocida)");
+
+            const response = await fetch(fetchUrl);
+            const blob = await response.blob();
+
+            // 2. Restore
+            setProgressMsg("Descomprimiendo y restaurando...");
+            await BackupService.restoreFullBackup(blob, (current, total) => {
+                setProgressMsg(`Restaurando: ${current} de ${total}`);
+            });
+
+            await loadStats(); // Refresh stats
+            alert("Restauración completada. Tus proyectos han sido importados.");
+
+        } catch (e) {
+            console.error(e);
+            if (e.message !== 'pickFiles canceled.') {
+                alert("Error al restaurar: " + e.message);
+            }
+        } finally {
+            setIsProcessing(false);
+            setProgressMsg('');
         }
     };
 
@@ -52,11 +154,19 @@ const Settings = ({ onBack }) => {
             </div>
 
             {/* Brand Title Centered */}
-            <div className="text-center mb-8">
-                <h2 className="text-4xl font-extrabold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent drop-shadow-sm tracking-tight">
-                    KaraPlayback
-                </h2>
-                <div className="h-1 w-12 bg-violet-500 mx-auto mt-2 rounded-full opacity-50"></div>
+            <div className="flex flex-col justify-center items-center gap-2 mb-8">
+                <img
+                    src="/icon.png"
+                    alt="App Logo"
+                    className="w-16 h-16 rounded-2xl mb-2"
+                    style={{ boxShadow: '0 0 25px 5px rgba(167, 139, 250, 0.8)' }}
+                />
+                <div className="text-center">
+                    <h2 className="text-4xl font-extrabold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent drop-shadow-sm tracking-tight">
+                        KaraPlayback
+                    </h2>
+                    <div className="h-1 w-12 bg-violet-500 mx-auto mt-2 rounded-full opacity-50"></div>
+                </div>
             </div>
 
             <div className="max-w-2xl mx-auto w-full space-y-8">
@@ -102,6 +212,46 @@ const Settings = ({ onBack }) => {
                     </div>
                 </section>
 
+                {/* Section: Backup & Restore */}
+                <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <div className="flex items-center gap-3 mb-4 text-emerald-400">
+                        <Folder size={24} />
+                        <h2 className="text-xl font-bold">Respaldo y Restauración</h2>
+                    </div>
+
+                    <div className="space-y-4">
+                        <button
+                            onClick={handleBackup}
+                            disabled={isProcessing}
+                            className="w-full py-4 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-900/50 rounded-xl transition font-medium flex items-center justify-center gap-3 group"
+                        >
+                            <CloudUpload size={20} className="group-hover:scale-110 transition" />
+                            <div className="flex flex-col items-start">
+                                <span className="font-bold">Crear Copia de Seguridad</span>
+                                <span className="text-xs opacity-70">Exportar todo a Google Drive (ZIP)</span>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={handleRestore}
+                            disabled={isProcessing}
+                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl transition font-medium flex items-center justify-center gap-3 group"
+                        >
+                            <CloudDownload size={20} className="group-hover:scale-110 transition" />
+                            <div className="flex flex-col items-start">
+                                <span className="font-bold">Restaurar Copia</span>
+                                <span className="text-xs opacity-70">Importar desde Drive (Sobreescribe)</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    {isProcessing && (
+                        <div className="mt-4 text-center text-sm text-slate-400 animate-pulse">
+                            {progressMsg}
+                        </div>
+                    )}
+                </section>
+
                 {/* Section: About */}
                 <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                     <div className="flex items-center gap-3 mb-4 text-slate-300">
@@ -112,7 +262,7 @@ const Settings = ({ onBack }) => {
                     <div className="space-y-4 text-slate-400 text-sm">
                         <div className="flex justify-between">
                             <span>Version</span>
-                            <span className="text-white">0.2.0 (Alpha)</span>
+                            <span className="text-white">0.3.0 (Beta)</span>
                         </div>
                         <div className="flex justify-between">
                             <span>Engine</span>

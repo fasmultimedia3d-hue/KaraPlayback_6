@@ -357,6 +357,12 @@ const Library = ({ onSelectProject, onOpenSettings, refreshKey, folderId, onFold
                             <ArrowLeft size={24} />
                         </button>
                     )}
+                    <img
+                        src="/icon.png"
+                        alt="Logo"
+                        className="w-8 h-8 rounded-lg shrink-0"
+                        style={{ boxShadow: '0 0 15px 2px rgba(167, 139, 250, 0.8)' }}
+                    />
                     <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent truncate leading-normal py-1 flex-1 min-w-0">
                         {currentFolderName}
                     </h1>
